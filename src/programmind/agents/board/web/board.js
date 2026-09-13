@@ -3,7 +3,7 @@
 (function () {
   "use strict";
   const PM = window.PM;
-  const { $, esc, api, store, show, setError, fmt, fmtNum, fmtSec, lines } = PM;
+  const { $, esc, api, store, show, setError, fmt, fmtNum, fmtSec, lines, md } = PM;
 
 
   const ICONS = {
@@ -376,6 +376,8 @@
 
   let outlineCache = null;
 
+  let lastEstimate = null;     // what the last estimate said, for the filter to redraw from
+
   function renderOutline() {
     const filter = ($("outline-filter").value || "").toLowerCase();
     const rows = (outlineCache || []).map((note) => {
@@ -390,6 +392,40 @@
       picks.extra = picks.extra.filter((x) => x !== id);
       picks.exclude = picks.exclude.filter((x) => x !== id);
       if (box.checked) picks.extra.push(id);
+      saveConfirmDraft(); requestEstimate();
+    }));
+  }
+
+  // Spec 5.8: every member receives the whole vault, so the picker is one
+  // list of pages, as on the Ask the vault screen. The per-member ranking of
+  // 5.1 and its controls come back only when the vault does not fit.
+  function renderWholeVault(e) {
+    const filter = ($("outline-filter").value || "").toLowerCase();
+    const hit = (path) => !filter || path.toLowerCase().includes(filter);
+    const row = (s) => `
+      <li ${hit(s.path) ? "" : "hidden"}><input type="checkbox" data-id="${esc(s.path)}" ${picks.exclude.includes(s.path) ? "" : "checked"} title="Untick to leave this page out for every member"> ${esc(s.path)}${s.core ? ' <span class="core-tag" title="Every member receives this">core</span>' : ""}<span class="tok">${fmtNum(s.tokens)}</span></li>`;
+    const pages = e.pages || [];
+    $("estimate-notes").innerHTML = `<ul class="sec-list">${pages.map(row).join("")}</ul>`;
+    $("estimate-notes").querySelectorAll("input").forEach((box) => box.addEventListener("change", () => {
+      const id = box.dataset.id;
+      picks.exclude = picks.exclude.filter((x) => x !== id);
+      if (!box.checked) picks.exclude.push(id);
+      saveConfirmDraft(); requestEstimate();
+    }));
+  }
+
+  // Spec 5.8: every member receives the whole vault, so the picker is one
+  // list of pages, as on the Ask the vault screen. The per-member ranking of
+  // 5.1 and its controls come back only when the vault does not fit.
+  function renderWholeVault(e) {
+    const filter = ($("outline-filter").value || "").toLowerCase();
+    const row = (s) => `
+      <li ${!filter || s.path.toLowerCase().includes(filter) ? "" : "hidden"}><input type="checkbox" data-id="${esc(s.path)}" ${picks.exclude.includes(s.path) ? "" : "checked"} title="Untick to leave this page out for every member"> ${esc(s.path)}${s.core ? ' <span class="core-tag" title="The shared core">core</span>' : ""}<span class="tok">${fmtNum(s.tokens)}</span></li>`;
+    $("estimate-notes").innerHTML = `<ul class="sec-list">${(e.pages || []).map(row).join("")}</ul>`;
+    $("estimate-notes").querySelectorAll("input").forEach((box) => box.addEventListener("change", () => {
+      const id = box.dataset.id;
+      picks.exclude = picks.exclude.filter((x) => x !== id);
+      if (!box.checked) picks.exclude.push(id);
       saveConfirmDraft(); requestEstimate();
     }));
   }
@@ -434,8 +470,19 @@
         const learned = e.overhead_learned_from ? `overhead of ${fmtNum(e.overhead_per_call)} per call learned from ${e.overhead_learned_from} real call(s) of this topic` : `overhead of ${fmtNum(e.overhead_per_call)} per call assumed until the first real call`;
         const forced = e.forced_tokens ? ` · <strong>${fmtNum(e.forced_tokens)} tokens</strong> from your picks on top of the slider` : "";
         const pickCall = (e.per_call || []).some((c) => c.label === "knowledge pick") ? " (one of them the knowledge pick)" : "";
-        $("estimate").innerHTML = `<strong>${e.calls} model call(s)</strong>${pickCall}, about <strong>${fmtNum(e.tokens_in)} tokens in</strong>${forced} · ${esc(learned)} · tokens are an estimate, calls are exact`;
-        renderMemberSections(e);
+        const whole = !!e.whole_vault;
+        $("estimate").innerHTML = `<strong>${e.calls} model call(s)</strong>${pickCall}, about <strong>${fmtNum(e.tokens_in)} tokens in</strong>`
+          + `${whole ? ` · the whole vault, ${(e.pages || []).length} page(s), to every member` : forced} · ${esc(learned)} · tokens are an estimate, calls are exact`;
+        // Spec 5.8, decision 3: the slider, the selection and the per-member
+        // lists mean something only when the vault does not fit one read.
+        ["budget-eyebrow", "budget-row", "selection-eyebrow", "selection-row", "picks-actions", "outline-block"]
+          .forEach((id) => { if ($(id)) $(id).hidden = whole; });
+        if (whole) { $("budget-info").hidden = true; $("selection-info").hidden = true; $("pick-status").textContent = ""; }
+        $("estimate-summary").textContent = whole
+          ? `Pages read for this question · ${(e.pages || []).length} page(s)`
+          : "What each member would receive, with the reasons, and what to add or leave out";
+        lastEstimate = e;
+        if (whole) renderWholeVault(e); else renderMemberSections(e);
         if (e.outline) { outlineCache = e.outline; renderOutline(); }
       } catch (err) {
         if (seq === estimateSeq) $("estimate").textContent = `No estimate: ${err.message}`;
@@ -513,6 +560,19 @@
     }));
   }
 
+  // Spec 5.8, decision 5: what each member is writing, while it writes it.
+  // The finished, checked entry replaces it when the call lands.
+  function renderLive() {
+    const live = (session && session.live) || {};
+    const members = Object.keys(live).filter((m) => m && !(session.partial || {})[m]);
+    $("live-members").innerHTML = members.map((m) => `
+      <div class="live-answer"><p class="live-who" style="color:${esc(meta(m).color)}">${esc(m)} is writing…</p>
+      <div class="a">${md(live[m])}</div></div>`).join("");
+    $("live-members").hidden = !members.length;
+    const direction = live[""] || "";
+    if (direction) $("synthesis-body").innerHTML = `<div class="live-answer"><div class="a">${md(direction)}</div></div>`;
+  }
+
   function renderRunning() {
     $("screen-result").dataset.phase = session.phase;
     const synthesising = session.phase === "synthesising";
@@ -533,6 +593,7 @@
       renderTiles(early, failedNow);
       renderMemberCards(early);
     }
+    renderLive();
     setError("failed-members", "");
     const card = $("synthesis-card");
     card.className = `card synthesis direction-tile ${synthesising ? "running" : "pending"}`;
@@ -544,7 +605,7 @@
         : `Waits for every member to answer (${count} of ${n} so far)`;
     $("direction-spinner").hidden = !(synthesising || combined);
     if (combined) card.className = "card synthesis direction-tile running";
-    $("synthesis-body").innerHTML = "";
+    if (!((session.live || {})[""])) $("synthesis-body").innerHTML = "";
     $("ask-back").hidden = true;
     show("result");
   }
@@ -804,7 +865,9 @@
 
   $("btn-error-home").addEventListener("click", () => newTopic(true));
 
-  $("outline-filter").addEventListener("input", renderOutline);
+  $("outline-filter").addEventListener("input", () => {
+    if (lastEstimate && lastEstimate.whole_vault) renderWholeVault(lastEstimate); else renderOutline();
+  });
 
   PM.steps().querySelectorAll(".step").forEach((button) => button.addEventListener("click", () => goToStep(Number(button.dataset.step))));
 

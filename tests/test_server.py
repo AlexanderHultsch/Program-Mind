@@ -108,6 +108,9 @@ class RoutingFakeProvider(AiProvider):
         if on_text is not None and "## Question to the vault" in prompt:
             later = "## Your answer so far" in prompt          # spec 4.1: the answer as it is written
             on_text(((self.second_answer if later else None) or self.ask_answer or ASK)[:20])
+        if on_text is not None and "Member: " in prompt and "## Your earlier assessment" not in prompt:
+            member = prompt.split("Member: ", 1)[1].splitlines()[0]         # spec 5.8: the member writes on the screen
+            on_text('{"view": "' + member + ' is thinking')
         if self.delay:
             time.sleep(self.delay)
         if "## Answer to check" in prompt:
@@ -161,7 +164,10 @@ class TestServerFlow(unittest.TestCase):
         make_roles(cls.vault / "Roles&Responsibilities")
         cls.config_path = Path(cls.tmp.name) / "config.local.json"
         cls.config = {"provider": {"models": {"board": "fake/m"}},
-                      "knowledge": {"vault_path": str(cls.vault), "token_budget": 6000, "selection": "python"}}
+                      # A ceiling below this vault keeps the per-member ranking of 5.1 in force here;
+                      # the whole-vault board of 5.8 has tests of its own.
+                      "knowledge": {"vault_path": str(cls.vault), "token_budget": 6000, "selection": "python",
+                                    "max_read_tokens": 60}}
         cls.config_path.write_text(json.dumps(cls.config), encoding="utf-8")
         cls.provider = RoutingFakeProvider()
         cls.httpd, cls.board_server = create_http_server(cls.config, cls.config_path, port=0, provider=cls.provider)
@@ -1327,13 +1333,13 @@ class TestHistory(unittest.TestCase):
     def test_the_record_carries_the_knowledge_paths_but_never_the_knowledge_text(self):
         sid, _ = self.run_to_result()
         record = json.loads((self.folder / f"{sid}.json").read_text(encoding="utf-8"))
-        self.assertEqual(record["knowledge_paths"][CLASSIC[0]], ["Tooling.md"])
+        self.assertIn("Tooling.md", record["knowledge_paths"][CLASSIC[0]])      # 5.8: every page, this one among them
         self.assertNotIn("Tooling is late.", json.dumps(record))     # the vault's words stay in the vault
         restored = Session.from_record(record)
         self.assertEqual(restored.id, sid)
         self.assertEqual(restored.title, "Rework or switch")
         self.assertEqual(restored.status, "open")
-        self.assertEqual(restored.member_paths[CLASSIC[0]], ["Tooling.md"])
+        self.assertIn("Tooling.md", restored.member_paths[CLASSIC[0]])
 
 
 class TestFreshKnowledge(unittest.TestCase):
@@ -1357,7 +1363,10 @@ class TestFreshKnowledge(unittest.TestCase):
         make_roles(self.vault / "Roles&Responsibilities")
         self.config_path = Path(self.tmp.name) / "config.local.json"
         self.config = {"provider": {"models": {"board": "fake/m"}},
-                       "knowledge": {"vault_path": str(self.vault), "token_budget": 300, "selection": "python"},
+                       # Spec 5.2 is about reading again for each new question, which is what the
+                       # ranking does; a ceiling below this vault keeps the board on that path.
+                       "knowledge": {"vault_path": str(self.vault), "token_budget": 300, "selection": "python",
+                                     "max_read_tokens": 120},
                        "server": {"history_folder": str(Path(self.tmp.name) / "history")}}
         self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
         self.provider = RoutingFakeProvider()
@@ -1434,6 +1443,10 @@ class TestFreshKnowledge(unittest.TestCase):
         self.assertEqual(len(self.provider.prompts) - before, 1)   # one call: the ranking is Python's
 
     def test_every_question_of_a_thread_reads_again(self):
+        # Ask the vault reads the whole vault (5.6); the class's low ceiling is
+        # for the board tests beside this one.
+        self.board_server.config["knowledge"]["max_read_tokens"] = 100000
+        self.addCleanup(self.board_server.config["knowledge"].__setitem__, "max_read_tokens", 120)
         _, created = self.call("POST", "/api/ask", {"budget": 300})
         tid = created["id"]
         ask_and_read(self, tid, "Is the housing tooling late?")
@@ -1765,4 +1778,96 @@ class TestChoosing(unittest.TestCase):
         state = self.until(tid, lambda s: s["phase"] == "idle" and not s["busy"])
         self.assertEqual(state["steps"], [])
         self.assertEqual(state["turns"][0]["rounds"][0]["read"][0], "Tasks/DV testing.md")
+
+
+class TestWholeVaultBoard(unittest.TestCase):
+    """Spec 5.8: every member receives the whole vault, the confirm screen
+    says so, no call is spent choosing, and the page follows each member as
+    it writes."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.vault = Path(self.tmp.name) / "vault"
+        self.vault.mkdir()
+        (self.vault / "Tooling.md").write_text("---\ntitle: Tooling\n---\nTooling is late.\n", encoding="utf-8")
+        (self.vault / "Budget.md").write_text("---\ntitle: Budget\n---\n180k left.\n", encoding="utf-8")
+        (self.vault / "Gates.md").write_text("---\ntitle: Gates\n---\nMG3 in March.\n", encoding="utf-8")
+        make_roles(self.vault / "Roles&Responsibilities")
+        self.config_path = Path(self.tmp.name) / "config.local.json"
+        self.config = {"provider": {"models": {"board": "fake/m"}},
+                       "knowledge": {"vault_path": str(self.vault), "token_budget": 40, "selection": "ai"},
+                       "server": {"history_folder": str(Path(self.tmp.name) / "history")}}
+        self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        self.provider = RoutingFakeProvider()
+        self.httpd, self.board_server = create_http_server(self.config, self.config_path, port=0, provider=self.provider)
+        self.port = self.httpd.server_address[1]
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+
+    def tearDown(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        self.tmp.cleanup()
+
+    call = TestHistory.call
+
+    def until(self, sid, predicate, timeout=15):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            _, state = self.call("GET", f"/api/sessions/{sid}")
+            if predicate(state):
+                return state
+            time.sleep(0.02)
+        self.fail(f"waited in vain; phase {state['phase']}")
+
+    def _to_confirm(self):
+        _, state = self.call("POST", "/api/sessions", {"question": "Rework the tooling before MG4?"})
+        sid = state["id"]
+        self.until(sid, lambda s: s["phase"] == "questions")
+        self.call("POST", f"/api/sessions/{sid}/answers", {"answers": [""], "final": True})
+        return self.until(sid, lambda s: s["phase"] == "confirm")["id"]
+
+    def test_the_confirm_screen_reads_the_whole_vault_and_spends_no_call_on_choosing(self):
+        first = len(self.provider.prompts)
+        sid = self._to_confirm()
+        _, est = self.call("POST", f"/api/sessions/{sid}/estimate", {"members": CLASSIC[:2], "budget": 40})
+        self.assertTrue(est["whole_vault"])                                # 5.8, decision 1
+        paths = [row["path"] for row in est["pages"]]
+        for page in ("Tooling.md", "Budget.md", "Gates.md"):
+            self.assertIn(page, paths)
+        self.assertTrue(any(row["path"].startswith("Roles") for row in est["pages"]))
+        self.assertNotIn("knowledge pick", [c["label"] for c in est["per_call"]])
+        self.assertEqual(self.call("GET", f"/api/sessions/{sid}")[1]["pick_state"], "idle")
+        self.assertNotIn("## Candidate sections", "".join(self.provider.prompts[first:]))
+        # A page unticked is left out of every member's read.
+        _, est = self.call("POST", f"/api/sessions/{sid}/estimate", {"members": CLASSIC[:2], "exclude": ["Budget.md"]})
+        self.assertNotIn("Budget.md", [row["path"] for row in est["pages"]])
+
+    def test_every_member_is_sent_every_page_and_writes_on_the_screen(self):
+        sid = self._to_confirm()
+        self.provider.delay = 0.4
+        try:
+            self.call("POST", f"/api/sessions/{sid}/run", {"topic": "Rework?", "members": CLASSIC[:2]})
+            live = {}
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
+                _, state = self.call("GET", f"/api/sessions/{sid}")
+                live.update(state.get("live") or {})
+                if state["phase"] == "result":
+                    break
+                time.sleep(0.05)
+        finally:
+            self.provider.delay = 0.0
+        state = self.until(sid, lambda s: s["phase"] == "result")
+        for member in CLASSIC[:2]:
+            self.assertEqual(live.get(member), f"{member} is thinking")     # 5.8, decision 5
+            sent = state["member_knowledge_paths"][member]
+            for page in ("Tooling.md", "Budget.md", "Gates.md"):
+                self.assertIn(page, sent)                                  # 5.8, decision 1
+        self.assertEqual(state["live"], {})                                # gone once the entries stand
+        self.assertNotIn("knowledge pick", [c["step"] for c in state["stats"]["calls"]])
+        prompts = [p for p in self.provider.prompts if "Member: " in p and "## Your earlier assessment" not in p]
+        self.assertGreaterEqual(len(prompts), 2)
+        for prompt in prompts[-2:]:
+            self.assertIn("Tooling is late.", prompt)
+            self.assertIn("180k left.", prompt)                            # the same block for each
 

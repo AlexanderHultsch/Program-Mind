@@ -304,14 +304,14 @@
 <br><br>In both modes the program checks that every member came back, that each entry names its own measures or tasks, and every citation.</div>
     <p class="eyebrow">Who is asked <span class="muted small">untick a swim lane the topic does not concern</span></p>
     <div id="confirm-members" class="member-picks"></div>
-    <p class="eyebrow">Knowledge per member <button type="button" class="info-btn" id="btn-budget-info" title="What does the slider cap?" aria-label="What does the slider cap?">i</button></p>
-    <div class="budget-row">
+    <p class="eyebrow" id="budget-eyebrow">Knowledge per member <button type="button" class="info-btn" id="btn-budget-info" title="What does the slider cap?" aria-label="What does the slider cap?">i</button></p>
+    <div class="budget-row" id="budget-row">
       <input id="budget" type="range" min="0" max="12000" step="500" value="6000" aria-label="Knowledge tokens per member">
       <span id="budget-value" class="budget-value">6,000 tokens</span>
     </div>
     <div id="budget-info" class="small info-text" hidden><strong>What the slider caps:</strong> the sections each member receives in full - the shared core (project page, phase and gate definitions, the tasks active in the phase your question names) and the member's own sections.<br><strong>On top, not counted by the slider:</strong> one line each for up to 20 further pages (at most 800 tokens), the sections you add below, and the KPI notes.<br><span class="muted">The estimate follows the slider.</span></div>
-    <p class="eyebrow">Knowledge selection <button type="button" class="info-btn" id="btn-selection-info" title="What is the difference?" aria-label="What is the difference?">i</button></p>
-    <div class="select-wrap">
+    <p class="eyebrow" id="selection-eyebrow">Knowledge selection <button type="button" class="info-btn" id="btn-selection-info" title="What is the difference?" aria-label="What is the difference?">i</button></p>
+    <div class="select-wrap" id="selection-row">
       <select id="selection-mode" class="select-modern">
         <option value="ai">AI assisted (recommended)</option>
         <option value="python">Python only</option>
@@ -324,15 +324,17 @@
     <p id="pick-status" class="muted small"></p>
     <p id="pick-banner" class="banner small" hidden></p>
     <p id="estimate" class="estimate muted small">Estimating…</p>
-    <details id="estimate-detail" class="estimate-detail"><summary class="muted small">What each member would receive, with the reasons, and what to add or leave out</summary>
-      <div class="row picks-actions">
+    <details id="estimate-detail" class="estimate-detail"><summary id="estimate-summary" class="muted small">What each member would receive, with the reasons, and what to add or leave out</summary>
+      <div class="row picks-actions" id="picks-actions">
         <button type="button" class="ghost small-btn" id="btn-picks-accept" title="Tick everything again">Accept all</button>
         <button type="button" class="ghost small-btn" id="btn-picks-python" title="Switch to the Python ranking">Use Python picks instead</button>
       </div>
+      <input id="outline-filter" type="text" class="outline-filter" placeholder="Filter pages…">
       <div id="estimate-notes"></div>
-      <p class="eyebrow">Add for every member <span class="muted small">sent whole, on top of the slider; the estimate follows, the slider does not move</span></p>
-      <input id="outline-filter" type="text" class="outline-filter" placeholder="Filter notes and sections…">
-      <div id="outline" class="outline"></div>
+      <div id="outline-block">
+        <p class="eyebrow">Add for every member <span class="muted small">sent whole, on top of the slider; the estimate follows, the slider does not move</span></p>
+        <div id="outline" class="outline"></div>
+      </div>
     </details>
     <p id="confirm-knowledge" class="muted small"></p>
     <div class="row end">
@@ -348,6 +350,8 @@
     <p id="board-state" class="muted"></p>
 
     <div id="member-grid" class="member-grid"></div>
+    <!-- What each member is writing, while it writes it (spec 5.8, decision 5). -->
+    <div id="live-members" class="stack" hidden></div>
     <div id="member-cards" class="stack"></div>
     <p id="failed-members" class="error small" hidden></p>
 

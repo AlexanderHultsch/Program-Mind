@@ -476,6 +476,27 @@ select or deselect data, but don't make it a separate step."
 straight to `asking`; the estimate without a thread), the thread page (the
 picker moved under the question box on both screens) and the walk.
 
+### 5.8 The board on the same footing
+
+**Decided 13 September 2026.** Ask the vault reads the whole vault, shows
+its pages under the question box and writes its answer on the screen as it
+goes. Alex: "bring the board on the same status / functionally."
+
+| # | Decision |
+|---|---|
+| 1 | **Every member receives the whole vault**, every page whole, within the same ceiling as Ask the vault - `knowledge.max_read_tokens`, the older `ask.max_read_tokens` still read. The per-member ranking of 5.1 and the AI-assisted pick run only when the vault does not fit that ceiling. |
+| 2 | **The isolation is untouched.** Members still answer alone, each with its own role profile, its own KPI notes and its own place in the process; what is now the same for all of them is the knowledge, because everything is read. A member that has nothing to say still says so. |
+| 3 | **The slider and the knowledge-selection dropdown leave the confirm screen** while the vault fits, and the pages sit where Ask the vault has them: one folded line, "Pages read for this question - N pages", with a filter and the tick list inside. A page unticked there is left out of every member's read. Both controls come back when the vault outgrows the ceiling, which is the only case they mean anything. |
+| 4 | **The cost is shown, not hidden.** In the individual mode a board of five members reads the vault five times, once per call; in the combined mode it is sent once for all of them. The estimate on the confirm screen counts it as it always has, call by call, so the number is in front of Alex before he runs it. |
+| 5 | **The board writes on the screen too** (4.1): every member call and the consolidating call stream, so each member's view appears while it is written and the direction appears while it is drawn. The member's card shows what it has so far; the finished, checked entry replaces it when the call ends. As in 4.1, what is streamed is for the eye only - the entry, its sources and the citation check are read from the finished call. |
+| 6 | **A follow-up and a clarifier round read the whole vault as well** (5.2 stands: each reads fresh for its own question). |
+
+**Built 13 September 2026** in the shell server (the whole-vault block for
+every member, the estimate, the live text per member), `board.py` (an
+`on_text` per member call and for the consolidation), `ai/livejson.py`
+(the field of a half-written answer, shared with Ask the vault) and the
+board page.
+
 ## 6. Audit trail
 
 Every completed board run is logged, whether or not the follow-up loop that

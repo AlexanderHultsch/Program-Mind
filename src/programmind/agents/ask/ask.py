@@ -22,6 +22,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from programmind.ai import livejson
 from programmind.ai.prompts import load_prompt
 from programmind.memory.history import HistoryStore, new_id
 from programmind.ai.provider import TASK_BOARD, AiProvider, AiResult
@@ -86,46 +87,12 @@ def ask_prompt(question: str, knowledge_text: str, kpi_text: str, history: list[
     return "\n".join(lines)
 
 
-_ANSWER_KEY = re.compile(r'"answer"\s*:\s*"')
-_ESCAPES = {"n": "\n", "t": "\t", "r": "", '"': '"', "\\": "\\", "/": "/", "b": "", "f": ""}
-
-
 def live_answer(partial: str) -> str:
     """The answer as far as the model has written it (spec 4.1), read out of
-    the half-finished JSON the stream carries: the value of ``answer``,
-    unescaped, up to wherever the model has got to. Nothing before the key
-    is written, and a broken escape at the end is simply not shown yet.
-
-    This is for the page's eye only. The answer Python keeps is the one
-    parsed from the finished call by ``parse_answer``."""
-    match = _ANSWER_KEY.search(partial)
-    if match is None:
-        return ""
-    out: list[str] = []
-    index = match.end()
-    while index < len(partial):
-        char = partial[index]
-        if char == "\\":
-            if index + 1 >= len(partial):
-                break                                  # an escape the model has not finished writing
-            following = partial[index + 1]
-            if following == "u":
-                if index + 6 > len(partial):
-                    break
-                try:
-                    out.append(chr(int(partial[index + 2:index + 6], 16)))
-                except ValueError:
-                    pass
-                index += 6
-                continue
-            out.append(_ESCAPES.get(following, following))
-            index += 2
-            continue
-        if char == '"':
-            break                                      # the end of the answer; the rest is sources and gaps
-        out.append(char)
-        index += 1
-    return "".join(out)
+    the half-finished JSON the stream carries. For the page's eye only: the
+    answer Python keeps is the one ``parse_answer`` reads from the finished
+    call."""
+    return livejson.field(partial, "answer")
 
 
 def _note_key(path: str) -> str:
@@ -208,7 +175,7 @@ def ask(provider: AiProvider, question: str, knowledge_text: str, kpi_text: str,
     ai_result = provider.complete(TASK_BOARD, ask_prompt(question, knowledge_text, kpi_text, history, project,
                                                          read_before=read_before, contents_text=contents_text,
                                                          earlier=earlier, check_note=check_note, round_no=round_no),
-                                  on_text)
+                                  on_text=on_text)
     answer = parse_answer(ai_result.text, sent, briefs)
     answer.ai_result = ai_result
     return answer

@@ -433,18 +433,19 @@ class CallFailed(RuntimeError):
         self.calls = calls
 
 
-def _complete_with_retry(provider: AiProvider, prompt: str) -> tuple[AiResult, int]:
+def _complete_with_retry(provider: AiProvider, prompt: str, on_text=None) -> tuple[AiResult, int]:
     """One member call, retried once when the model called tools instead of
     answering (seen 9 September 2026: Manufacturing ran ``glob`` and
     produced no text). Returns the result and the number of calls made;
-    raises ``CallFailed`` with the count when both attempts fail."""
+    raises ``CallFailed`` with the count when both attempts fail.
+    ``on_text`` receives the answer as it is written (spec 4.1, 5.8)."""
     try:
-        return provider.complete(TASK_BOARD, prompt), 1
+        return provider.complete(TASK_BOARD, prompt, on_text=on_text), 1
     except Exception as exc:
         if not _is_tool_only_failure(exc):
             raise CallFailed(exc, 1) from exc
     try:
-        return provider.complete(TASK_BOARD, _RETRY_PREFIX + prompt), 2
+        return provider.complete(TASK_BOARD, _RETRY_PREFIX + prompt, on_text=on_text), 2
     except Exception as exc:
         raise CallFailed(exc, 2) from exc
 
@@ -465,6 +466,7 @@ def run_board(
     sent_notes: dict[str, str] | None = None,
     member_knowledge: dict[str, str] | None = None,
     member_notes: dict[str, dict[str, str]] | None = None,
+    on_text: Callable[[str, str], None] | None = None,
 ) -> BoardResult:
     """One AI Board run (FR-3.1..FR-3.6): one isolated call per member, then
     one synthesis call over what they produced. ``roles`` is the board
@@ -568,7 +570,9 @@ def run_board(
     def _call(member: str, prompt: str) -> AiResult:
         _notify(member, "running")
         try:
-            result, calls = _complete_with_retry(provider, prompt)
+            # Spec 5.8, decision 5: the page shows each member's view as it is written.
+            sink = (lambda text, who=member: on_text(who, text)) if on_text is not None else None
+            result, calls = _complete_with_retry(provider, prompt, sink)
         except CallFailed as failed:
             with early_lock:
                 extra_calls[0] += failed.calls - 1
@@ -637,7 +641,8 @@ def run_board(
             sources=_summarise_sources(assessments),
         ))
 
-    ai_result = provider.complete(TASK_BOARD, _synthesis_prompt(assessments, roles))
+    ai_result = provider.complete(TASK_BOARD, _synthesis_prompt(assessments, roles),
+                                  on_text=(lambda text: on_text("", text)) if on_text is not None else None)
     llm_calls += 1
 
     try:

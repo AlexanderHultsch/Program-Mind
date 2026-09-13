@@ -47,6 +47,7 @@ from programmind.agents.ask import ask as ask_mod
 from programmind.knowledge import picker
 from programmind.agents.board import roles as roles_mod
 from programmind.ai.opencode_client import stop_call
+from programmind.ai import livejson
 from programmind.ai import provider as ai_provider
 from programmind.ai.provider import TASK_BOARD, AiNotConfiguredError, AiProvider, AiResult, build_provider
 from programmind.memory.audit import log_run
@@ -151,7 +152,7 @@ class RecordingProvider(AiProvider):
         with session.lock:
             session.active_threads.add(tid)
         try:
-            result = self._inner.complete(task, prompt, on_text)
+            result = self._inner.complete(task, prompt, on_text=on_text)
         except Exception as exc:
             if not session.cancelled.is_set():
                 session.record_call(step, member, None, None, time.monotonic() - started, error=str(exc)[:120])
@@ -266,6 +267,7 @@ class Session:
         self.selected_members: list[str] = []             # the members Alex chose to ask
         self.members: dict[str, str] = {}
         self.partial: dict[str, dict[str, Any]] = {}      # answers already in while the others think
+        self.live: dict[str, str] = {}                   # spec 5.8: what each member is writing, for the page only
         self.mode = "individual"                          # "individual" or "combined" (decided 9 September 2026)
         self.budget: int | None = None                    # knowledge tokens per member for this topic (the slider)
         self.member_notes: dict[str, dict[str, str]] = {} # member -> note path -> text sent, full pages and brief lines
@@ -423,6 +425,7 @@ class Session:
                 "selected_members": self.selected_members,
                 "members": deepcopy(self.members),
                 "partial": deepcopy(self.partial),
+                "live": dict(self.live),
                 "mode": self.mode,
                 "budget": self.budget,
                 "projects": self.projects,
@@ -472,6 +475,15 @@ class Session:
     def mark(self, phase: str) -> None:
         """Under the caller's lock or not - appending is atomic enough."""
         self.marks.append({"phase": phase, "at": time.time()})
+
+    def set_live(self, member: str, text: str) -> None:
+        """What a member has written so far (spec 5.8, decision 5); the empty
+        name is the consolidation. For the page only, never stored."""
+        with self.lock:
+            if text:
+                self.live[member] = text
+            else:
+                self.live.pop(member, None)
 
     def record_call(self, step: str, member: str, input_tokens: int | None, output_tokens: int | None,
                     seconds: float, error: str | None = None, estimated: int | None = None) -> None:
@@ -827,8 +839,11 @@ class BoardServer:
     def _clarifier_knowledge(self, session: Session) -> bool:
         """Select the clarifier's block for what is known now. False when the
         vault cannot be read; the session is failed by then."""
+        query = self._clarifier_query(session)
         try:
-            selection = knowledge_mod.gather(self.config, self._clarifier_query(session), projects=session.projects)
+            selection = self._whole_vault(query, session.projects, [])
+            if selection is None:
+                selection = knowledge_mod.gather(self.config, query, projects=session.projects)
         except knowledge_mod.KnowledgeUnavailable as exc:
             session.fail(f"{exc}. Check the knowledge source in Options.")
             return False
@@ -917,6 +932,15 @@ class BoardServer:
         while Alex reads the confirm screen (spec 5.1). A pick still running
         for earlier inputs is superseded: its result is dropped when it
         lands (``pick_id``)."""
+        # Spec 5.8, decision 1: with the whole vault in every block there is
+        # nothing to pick, and the call would be spent for nothing.
+        try:
+            if self._whole_vault(f"{session.question}\n{session.inputs.get('topic', '')}",
+                                 session.projects, list(session.exclude)) is not None:
+                session.pick_state, session.pick_error, session.picks = "idle", None, None
+                return
+        except knowledge_mod.KnowledgeUnavailable:
+            pass
         session.pick_id += 1
         session.pick_state = "running"
         session.pick_error = None
@@ -1029,6 +1053,7 @@ class BoardServer:
             session.turns = []
             session.phase = "running"
             session.mark("running")
+            session.live = {}
             session.members = {member: "pending" for member in session.selected_members}
         self._spawn(session, self._run_board, session)
 
@@ -1042,13 +1067,29 @@ class BoardServer:
             budget = default
         return max(0, min(budget, MAX_BUDGET))
 
+    def _whole_vault(self, question: str, projects, exclude: list[str]):
+        """The whole vault as one block, or ``None`` when it does not fit the
+        ceiling (spec 5.6 for Ask the vault, 5.8 for the board)."""
+        if not _get(self.config, "knowledge.vault_path"):
+            return None
+        table = knowledge_mod.contents(self.config, projects, question=question)
+        if table["trimmed"]:
+            return None
+        selection = knowledge_mod.gather_whole(self.config, question, [page["path"] for page in table["pages"]],
+                                               ceiling=self._ceiling(), projects=projects, exclude=exclude)
+        return None if selection.left else selection
+
     def _member_selections(self, session: Session, board, selected: list[str], budget: int,
                            extra: list[str] | None = None, exclude: list[str] | None = None) -> dict:
-        """One knowledge selection per chosen member for this topic (decided
-        9 September 2026): the sections ranked by the topic and by the
-        member's own terms, within ``budget`` tokens each, plus the manual
-        picks on top and minus the exclusions."""
+        """The knowledge each chosen member receives. Since spec 5.8 that is
+        the whole vault, whole pages, the same for every member, as long as
+        it fits the ceiling; the per-member ranking of 5.1 and the AI pick
+        run only when it does not."""
         query = f"{session.question}\n{session.inputs.get('topic', '')}"
+        exclusions = list(exclude if exclude is not None else session.exclude)
+        whole = self._whole_vault(query, session.projects, exclusions)
+        if whole is not None:
+            return {member: whole for member in selected}      # one block, read once, sent to each
         terms = {m: role_terms(board.profiles.get(m)) for m in selected}
         with session.lock:
             picks = session.picks if session.selection == "ai" and session.pick_state == "done" else None
@@ -1056,13 +1097,26 @@ class BoardServer:
             self.config, query, terms, token_budget=max(budget, 1),
             projects=session.projects,
             extra=list(extra if extra is not None else session.extra),
-            exclude=list(exclude if exclude is not None else session.exclude), picks=picks)
+            exclude=exclusions, picks=picks)
 
     @staticmethod
     def _blocks_from(selections: dict) -> dict[str, Any]:
         """What a run or an estimate needs from the selections: the whole
         block per member, the core once with each member's delta (spec
-        5.1), the pages for citation checks and the token split."""
+        5.1), the pages for citation checks and the token split. When every
+        member has the same block (spec 5.8: the whole vault), the whole of
+        it is the shared part and no member has a delta, so the combined
+        call carries the vault once."""
+        one = next(iter(selections.values()), None)
+        if one is not None and len(selections) > 1 and all(sel is one for sel in selections.values()):
+            return {
+                "knowledge": {m: one.text for m in selections},
+                "shared": one.text,
+                "delta": {m: "" for m in selections},
+                "notes": {m: dict(one.sent) for m in selections},
+                "paths": {m: sorted(one.sent) for m in selections},
+                "split": {m: {"core": one.core_tokens, "own": one.own_tokens, "brief": 0} for m in selections},
+            }
         return {
             "knowledge": {m: sel.text for m, sel in selections.items()},
             "shared": next((sel.core_text for sel in selections.values() if sel.core_text), ""),
@@ -1113,6 +1167,15 @@ class BoardServer:
                 return
             with session.lock:
                 session.partial[assessment.member] = asdict(assessment)
+                session.live.pop(assessment.member, None)      # the entry stands; the half-written text goes
+
+        def on_text(member: str, text: str) -> None:
+            """What that member (or, for the empty name, the consolidation)
+            has written so far - spec 4.1: for the page's eye only."""
+            if stale():
+                return
+            key = "overall_recommendation" if not member else "view"
+            session.set_live(member, livejson.field(text, key))
 
         inputs = session.inputs
         context = inputs["context"]
@@ -1146,7 +1209,8 @@ class BoardServer:
                 on_member=on_member, board=board, member_data=member_data, members=selected,
                 sent_notes={}, on_assessment=on_assessment,
                 member_knowledge=member_knowledge, member_notes=member_notes,
-                **({"shared_knowledge": blocks["shared"], "member_delta": blocks["delta"]} if session.mode == "combined" else {}),
+                **({"shared_knowledge": blocks["shared"], "member_delta": blocks["delta"]} if session.mode == "combined"
+                   else {"on_text": on_text}),          # spec 5.8, decision 5: the page follows each member
             )
         except Exception as exc:
             session.fail(str(exc))
@@ -1280,6 +1344,23 @@ class BoardServer:
         except Exception:   # noqa: BLE001 - no profiles: the ranking runs without a member's own words
             board = None
         try:
+            whole = self._whole_vault(query, projects, exclude)     # spec 5.8, decision 6
+        except knowledge_mod.KnowledgeUnavailable:
+            whole = None
+        try:
+            if whole is not None:
+                for member in (chosen or [""]):
+                    conversation.member_knowledge[member] = whole.text
+                    conversation.member_delta[member] = ""
+                    conversation.member_notes.setdefault(member, {}).update(whole.sent)
+                    if member:
+                        with session.lock:
+                            session.member_paths[member] = sorted(set(session.member_paths.get(member, [])) | set(whole.sent))
+                conversation.shared_knowledge = whole.text if chosen else conversation.shared_knowledge
+                if chosen:
+                    conversation.member_data.update(knowledge_mod.kpi_notes(self.config, chosen, projects=projects))
+                fresh = set(whole.sent) - known
+                return (whole.text if not chosen else ""), sorted(fresh)
             if chosen:
                 terms = {m: (role_terms(board.profiles.get(m)) if board is not None else ()) for m in chosen}
                 selections = knowledge_mod.gather_for_members(
@@ -1372,6 +1453,9 @@ class BoardServer:
         else:
             selections = self._member_selections(session, board, list(roles), budget, extra, exclude)
             blocks = self._blocks_from(selections)
+        one = next(iter(selections.values()), None)
+        # Spec 5.8: one block for every member means the whole vault was read.
+        whole_vault = one is not None and len(selections) > 0 and all(sel is one for sel in selections.values())
         sizes = prompt_sizes(topic=topic, context=context, options=options, constraints=constraints,
                              roles=roles, conduct=board.conduct, member_data=member_data,
                              project=", ".join(session.projects),
@@ -1401,6 +1485,9 @@ class BoardServer:
                        for m, sel in selections.items()},
             "split": blocks["split"],
             "members": blocks["paths"],
+            "whole_vault": whole_vault,
+            "pages": self._page_rows(one, forced=set(extra)) if whole_vault else [],
+            "ceiling": self._ceiling(),
             "sections": {m: [{"id": knowledge_mod.section_id(sec), "path": sec.relative, "heading": sec.heading,
                               "tokens": knowledge_mod.estimate_tokens(sec.body),
                               "forced": knowledge_mod.section_id(sec) in extra or sec.relative in extra,
@@ -1793,7 +1880,11 @@ class BoardServer:
             session.error = f"The thread could not be saved: {exc}"
 
     def _ceiling(self) -> int:
-        return int(_get(self.config, "ask.max_read_tokens") or knowledge_mod.MAX_READ_TOKENS)
+        """The most one call may carry (spec 5.5; 5.8, decision 1: the board
+        reads under the same ceiling). ``knowledge.max_read_tokens`` is the
+        name; ``ask.max_read_tokens`` was it until 13 September 2026."""
+        return int(_get(self.config, "knowledge.max_read_tokens") or _get(self.config, "ask.max_read_tokens")
+                   or knowledge_mod.MAX_READ_TOKENS)
 
     def _max_reads(self) -> int:
         return max(1, int(_get(self.config, "ask.max_reads") or ask_mod.MAX_READS))
@@ -1878,14 +1969,7 @@ class BoardServer:
             sizes = dict(session.page_tokens)
             overflow = session.overflow
         forced = {knowledge_mod.page_of(x) for x in (extra if extra is not None else thread.extra)}
-        pages = []
-        if sel:
-            for note in sel.notes:
-                path = note.relative
-                pages.append({"path": path, "tokens": knowledge_mod.estimate_tokens(sel.sent.get(path, "")),
-                              "core": path not in order or all(knowledge_mod.section_id(sec) in sel.core_ids for sec in sel.sections if sec.relative == path),
-                              "kept": path in kept and path not in chosen, "forced": path in forced,
-                              "reason": reasons.get(path, "")})
+        pages = self._page_rows(sel, forced=forced, kept=kept, chosen=chosen, reasons=reasons) if sel else []
         return {
             "calls": 2 if overflow else 1, "tokens_in": tokens,
             "per_call": [{"label": "ask the vault", "tokens": tokens}] + ([{"label": "answer check", "tokens": 0}] if overflow else []),
@@ -1899,6 +1983,21 @@ class BoardServer:
             "picked_by": ("vault" if not overflow else picked_by) if sel else "python",
             "kept": kept,
         }
+
+    @staticmethod
+    def _page_rows(sel, *, forced=(), kept=(), chosen=(), reasons=None) -> list[dict[str, Any]]:
+        """One row per page of a read: what it is, how big, and why it is
+        there. The picker on both screens is drawn from these."""
+        rows = []
+        for note in sel.notes:
+            path = note.relative
+            own = [knowledge_mod.section_id(sec) for sec in sel.sections if sec.relative == path]
+            rows.append({"path": path, "tokens": knowledge_mod.estimate_tokens(sel.sent.get(path, "")),
+                         "core": bool(own) and all(sid in sel.core_ids for sid in own),
+                         "kept": path in kept and path not in chosen,
+                         "forced": path in forced,
+                         "reason": (reasons or {}).get(path, "")})
+        return rows
 
     @staticmethod
     def _read_before(thread: "ask_mod.Thread") -> list[str]:

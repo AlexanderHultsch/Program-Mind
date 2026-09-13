@@ -37,7 +37,7 @@
   },
 
   "ask": {
-    "_comment": "Ask the vault (spec section 10): one agent answering any question from the vault. Since section 5.6 every question reads the whole vault, every page whole, in one call, as long as it fits max_read_tokens (the ceiling of one read; set it to what the gateway model can take, so a call cannot fail at its context limit). Only when the vault outgrows the ceiling does the model rank the pages first and a check after the answer swap in pages left unread, up to max_reads rounds. token_budget is kept on the record of older threads and caps nothing.",
+    "_comment": "Ask the vault (spec section 10): one agent answering any question from the vault. Since section 5.6 every question reads the whole vault, every page whole, in one call, as long as it fits knowledge.max_read_tokens (the ceiling of one read, which since section 5.8 governs the board too; the older ask.max_read_tokens below is still read). Only when the vault outgrows the ceiling does the model rank the pages first and a check after the answer swap in pages left unread, up to max_reads rounds. token_budget is kept on the record of older threads and caps nothing.",
     "token_budget": 12000,
     "max_read_tokens": 120000,
     "max_reads": 2

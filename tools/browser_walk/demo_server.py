@@ -93,8 +93,8 @@ class Slow(AiProvider):
                 text = json.dumps({"applies": True, "view": f"- {member}: rework is the only option that keeps SOP.\n- The late tooling is a schedule problem, not a design problem.", "impact": ["Switching -> new tooling at supplier Y -> 10 weeks lead time lands after SOP", "Rework -> 180k budget used up -> no reserve for a second iteration"], "risks": ["Supplier X slips again", "Rework consumes the remaining budget"], "recommendation": "- Rework at supplier X.\n- Put a weekly gate on the rework plan.", "facts_from_network": [{"fact": "Supplier X tooling is 6 weeks late", "source": "Suppliers/Housing tooling.md"}, {"fact": "Rework budget left is 180k EUR", "source": "Budget 2026.md"}, {"fact": "MG3 is on 12 March", "source": "Timing plan.md"}], "own_judgement": ["A second rework iteration would cost a mid five-figure sum", "Supplier Y needs about 10 weeks for new tooling"]})
         else:
             text = "{}"
-        if on_text is not None and "## Question to the vault" in prompt:
-            for cut in range(10, len(text), max(1, len(text) // 12)):     # as the server mode streams (spec 4.1)
+        if on_text is not None and ("## Question to the vault" in prompt or "Member: " in prompt or "## Assessments" in prompt):
+            for cut in range(10, len(text), max(1, len(text) // 12)):     # as the server mode streams (spec 4.1, 5.8)
                 time.sleep(0.12)
                 on_text(text[:cut])
             on_text(text)
