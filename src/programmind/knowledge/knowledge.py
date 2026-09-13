@@ -1036,7 +1036,12 @@ def gather_for_members(
     return result
 
 
-MAX_READ_TOKENS = 120000      # ``ask.max_read_tokens``: the ceiling of one read of Ask the vault (spec 5.5, decision 1)
+MAX_READ_TOKENS = 120000      # ``knowledge.max_read_tokens``: the ceiling of one call (spec 5.5, decision 1; 5.9)
+# What a call carries besides the pages (spec 5.9, decision 2), measured on
+# 13 September 2026 against a vault of 95,000 tokens: a member's profile,
+# the conduct note and its KPI block about 3,000, six of them in the
+# combined form about 5,500, and the gateway's own overhead about 6,300.
+READ_RESERVE_TOKENS = 15000
 
 
 def page_of(key: str) -> str:

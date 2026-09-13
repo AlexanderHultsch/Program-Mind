@@ -697,7 +697,7 @@ class BoardServer:
             "repository": REPOSITORY,
             "spec": SPEC_FILE.is_file(),
             "ask_budget": int(_get(self.config, "ask.token_budget", ask_mod.DEFAULT_TOKEN_BUDGET) or ask_mod.DEFAULT_TOKEN_BUDGET),
-            "ask_ceiling": self._ceiling(), "ask_max_reads": self._max_reads(),
+            "ask_ceiling": self._page_ceiling(), "ask_max_reads": self._max_reads(),
             "vault_name": self.vault_name(),
             "knowledge_status": status,
             "roles_folder": _get(self.config, "knowledge.roles_folder", "") or "",
@@ -1076,7 +1076,7 @@ class BoardServer:
         if table["trimmed"]:
             return None
         selection = knowledge_mod.gather_whole(self.config, question, [page["path"] for page in table["pages"]],
-                                               ceiling=self._ceiling(), projects=projects, exclude=exclude)
+                                               ceiling=self._page_ceiling(), projects=projects, exclude=exclude)
         return None if selection.left else selection
 
     def _member_selections(self, session: Session, board, selected: list[str], budget: int,
@@ -1487,7 +1487,7 @@ class BoardServer:
             "members": blocks["paths"],
             "whole_vault": whole_vault,
             "pages": self._page_rows(one, forced=set(extra)) if whole_vault else [],
-            "ceiling": self._ceiling(),
+            "ceiling": self._page_ceiling(),
             "sections": {m: [{"id": knowledge_mod.section_id(sec), "path": sec.relative, "heading": sec.heading,
                               "tokens": knowledge_mod.estimate_tokens(sec.body),
                               "forced": knowledge_mod.section_id(sec) in extra or sec.relative in extra,
@@ -1886,6 +1886,12 @@ class BoardServer:
         return int(_get(self.config, "knowledge.max_read_tokens") or _get(self.config, "ask.max_read_tokens")
                    or knowledge_mod.MAX_READ_TOKENS)
 
+    def _page_ceiling(self) -> int:
+        """What the pages may take (spec 5.9): the ceiling less what the call
+        carries besides them - the profile, the conduct note, the KPI block,
+        the prompt itself and the gateway's own overhead."""
+        return max(1, self._ceiling() - knowledge_mod.READ_RESERVE_TOKENS)
+
     def _max_reads(self) -> int:
         return max(1, int(_get(self.config, "ask.max_reads") or ask_mod.MAX_READS))
 
@@ -1951,7 +1957,7 @@ class BoardServer:
                 with session.lock:
                     order, reasons = self._ask_pages(session, question, extra)
                     picked_by = "model" if session.picks else "python"
-                sel = knowledge_mod.gather_whole(self.config, question, order, ceiling=self._ceiling(),
+                sel = knowledge_mod.gather_whole(self.config, question, order, ceiling=self._page_ceiling(),
                                                  projects=thread.projects, exclude=exclude)
                 kpi_text = ask_mod.project_kpi_text(self.config, thread.projects)
                 partial = bool(sel.left)        # 5.6, decision 5: the table of contents only when a page was left unread
@@ -1974,7 +1980,7 @@ class BoardServer:
             "calls": 2 if overflow else 1, "tokens_in": tokens,
             "per_call": [{"label": "ask the vault", "tokens": tokens}] + ([{"label": "answer check", "tokens": 0}] if overflow else []),
             "overhead_per_call": overhead, "overhead_learned_from": learned_from,
-            "ceiling": self._ceiling(), "max_reads": self._max_reads(), "whole_vault": not overflow,
+            "ceiling": self._page_ceiling(), "max_reads": self._max_reads(), "whole_vault": not overflow,
             "knowledge_tokens": sel.tokens if sel else 0, "kpi_tokens": knowledge_mod.estimate_tokens(kpi_text) if kpi_text else 0,
             "contents_tokens": knowledge_mod.estimate_tokens(contents_text) if contents_text else 0,
             "pages": pages,
@@ -2046,7 +2052,7 @@ class BoardServer:
         try:
             table = knowledge_mod.contents(self.config, session.thread.projects, question=question)
             fit = knowledge_mod.gather_whole(self.config, question, [page["path"] for page in table["pages"]],
-                                             ceiling=self._ceiling(), projects=session.thread.projects, exclude=session.thread.exclude)
+                                             ceiling=self._page_ceiling(), projects=session.thread.projects, exclude=session.thread.exclude)
         except knowledge_mod.KnowledgeUnavailable as exc:
             with session.lock:
                 session.clear_question()
@@ -2169,7 +2175,7 @@ class BoardServer:
                         session.round = round_no
                         session.read_counts.append(0)
                         session.phase = "asking"
-                    sel = knowledge_mod.gather_whole(self.config, question, order, ceiling=self._ceiling(),
+                    sel = knowledge_mod.gather_whole(self.config, question, order, ceiling=self._page_ceiling(),
                                                      projects=thread.projects, exclude=thread.exclude)
                     added = [path for path in sel.sent if path not in sent]
                     if round_no > 1 and not added:

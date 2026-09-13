@@ -167,7 +167,7 @@ class TestServerFlow(unittest.TestCase):
                       # A ceiling below this vault keeps the per-member ranking of 5.1 in force here;
                       # the whole-vault board of 5.8 has tests of its own.
                       "knowledge": {"vault_path": str(cls.vault), "token_budget": 6000, "selection": "python",
-                                    "max_read_tokens": 60}}
+                                    "max_read_tokens": 15060}}   # 60 of pages under the reserve of 5.9
         cls.config_path.write_text(json.dumps(cls.config), encoding="utf-8")
         cls.provider = RoutingFakeProvider()
         cls.httpd, cls.board_server = create_http_server(cls.config, cls.config_path, port=0, provider=cls.provider)
@@ -1366,7 +1366,7 @@ class TestFreshKnowledge(unittest.TestCase):
                        # Spec 5.2 is about reading again for each new question, which is what the
                        # ranking does; a ceiling below this vault keeps the board on that path.
                        "knowledge": {"vault_path": str(self.vault), "token_budget": 300, "selection": "python",
-                                     "max_read_tokens": 120},
+                                     "max_read_tokens": 15120},   # 120 of pages under the reserve of 5.9
                        "server": {"history_folder": str(Path(self.tmp.name) / "history")}}
         self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
         self.provider = RoutingFakeProvider()
@@ -1446,7 +1446,7 @@ class TestFreshKnowledge(unittest.TestCase):
         # Ask the vault reads the whole vault (5.6); the class's low ceiling is
         # for the board tests beside this one.
         self.board_server.config["knowledge"]["max_read_tokens"] = 100000
-        self.addCleanup(self.board_server.config["knowledge"].__setitem__, "max_read_tokens", 120)
+        self.addCleanup(self.board_server.config["knowledge"].__setitem__, "max_read_tokens", 15120)
         _, created = self.call("POST", "/api/ask", {"budget": 300})
         tid = created["id"]
         ask_and_read(self, tid, "Is the housing tooling late?")
@@ -1510,7 +1510,7 @@ class TestChoosing(unittest.TestCase):
         self.config_path = Path(self.tmp.name) / "config.local.json"
         self.config = {"provider": {"models": {"board": "fake/m"}},
                        "knowledge": {"vault_path": str(self.vault), "roles_folder": str(self.vault / "Roles"), "token_budget": 3000},
-                       "ask": {"max_read_tokens": 2400},
+                       "ask": {"max_read_tokens": 17400},      # 2,400 of pages under the reserve of 5.9
                        "server": {"history_folder": str(Path(self.tmp.name) / "history")}}
         self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
         self.provider = RoutingFakeProvider()
@@ -1600,7 +1600,7 @@ class TestChoosing(unittest.TestCase):
     def test_the_ceiling_is_the_only_cap_and_what_it_cuts_is_listed(self):
         self.provider.pick_answer = json.dumps({"members": [{"member": "Ask the vault",
             "read": ["Tasks/DV testing.md", "Tasks/EMC.md", "Tasks/Budget review.md"], "reasons": {}}]})
-        self.board_server.config.setdefault("ask", {})["max_read_tokens"] = 90
+        self.board_server.config.setdefault("ask", {})["max_read_tokens"] = 15090
         try:
             _, created = self.call("POST", "/api/ask", {})
             tid = created["id"]
@@ -1611,7 +1611,7 @@ class TestChoosing(unittest.TestCase):
             self.assertLess(len(sent), 3)                                  # the ceiling cut the choice
             beyond = [o["path"] for o in est["beyond"]]
             self.assertEqual(len(sent + beyond), 7)                        # every page of the vault is in the order
-            self.assertEqual(est["ceiling"], 90)
+            self.assertEqual(est["ceiling"], 90)      # the pages' share of it
             self.call("POST", f"/api/ask/{tid}/read", {})
             state = self.until(tid, lambda s: s["phase"] == "idle" and not s["busy"])
             self.assertEqual(sorted(state["turns"][0]["left"]), sorted(beyond))

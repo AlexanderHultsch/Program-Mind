@@ -173,7 +173,11 @@ consolidation.
 4. **The ceiling** `knowledge.max_read_tokens` (120,000) is a guess at the
    gateway model's context window; nobody has confirmed it. A read that
    fails with a context error means lower it; a vault that outgrows it
-   means raise it rather than trim the vault.
+   means raise it rather than trim the vault. Since 5.9 it counts the whole
+   call: the pages get it less 15,000 for the profile, the conduct note,
+   the KPI block, the prompt and the gateway's overhead. Measured on a
+   95,000-token vault, a member call came to 100,300 tokens and the
+   combined call to 103,246.
 5. **The live answer** runs through `opencode serve`. If it ever
    misbehaves, `provider.opencode.mode: "run"` in the local config puts
    every call back on `opencode run` and costs only the live view. What

@@ -566,6 +566,30 @@ member's entry and the direction in one JSON object, so there is no single
 field to follow while it is written; the individual form, which is the
 default, streams every call.
 
+### 5.9 What the ceiling counts
+
+**Decided 13 September 2026**, from a board run against a vault the size of
+Alex's (37 pages, 95,000 tokens) with the fake model. The board did what
+5.8 asks: every member received all 31 pages, the combined form sent them
+once, the citation check held. But the numbers showed the ceiling counting
+the wrong thing. The pages came to 97,694 tokens under a ceiling of
+120,000, and the call that carried them was 100,300 tokens in the
+individual form and 103,246 in the combined one - the role profile, the
+conduct note, the KPI notes, the question and the prompt itself ride on
+top of the pages, and the gateway adds about 6,300 of its own. A vault
+just under the ceiling would therefore have produced a call well over it,
+which is the one thing `knowledge.max_read_tokens` exists to prevent.
+
+| # | Decision |
+|---|---|
+| 1 | **The ceiling is the call, not the pages.** `knowledge.max_read_tokens` stays what the reader sets to the model's context window; Python subtracts what else the call carries before it packs pages, so the pages get the ceiling less a reserve. |
+| 2 | **The reserve is one number, 15,000 tokens** (`knowledge.READ_RESERVE_TOKENS`), measured from this run and rounded up: about 3,000 for a member's profile, conduct note and KPI block, about 5,500 when the combined form carries six of them, and about 6,300 for the gateway's own overhead. It is a constant, not another knob: a reader who needs a different figure moves the ceiling. |
+| 3 | **What the screen calls the ceiling is the page ceiling** - the figure the "beyond the ceiling" group is measured against - because that is the one a reader can act on by unticking a page. |
+
+**Built 13 September 2026**: `knowledge.READ_RESERVE_TOKENS` and
+`BoardServer._page_ceiling`, used wherever the whole vault is packed and
+wherever the program asks whether it fits.
+
 ## 6. Audit trail
 
 Every completed board run is logged, whether or not the follow-up loop that

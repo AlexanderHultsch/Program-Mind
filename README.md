@@ -117,9 +117,12 @@ Non-interactive use: `python scripts/setup.py --yes --profile private
 
 Every agent reads the `.md` files under the configured vault folder for each
 question, whole, with the KPI pages and the date their numbers were checked.
-One ceiling stands over a single read, `knowledge.max_read_tokens`
+One ceiling stands over a single call, `knowledge.max_read_tokens`
 (120,000 by default), so a call cannot fail at the model's context limit;
-set it to what your model can take. A vault that cannot be read stops the
+set it to what your model can take. The pages get that figure less a fixed
+15,000 tokens, which is what a call carries besides them: the role
+profile, the conduct note, the KPI numbers, the prompt itself and the
+gateway's own overhead. A vault that cannot be read stops the
 run with an error; there is no fallback source.
 
 If a vault ever outgrows that ceiling, the older machinery takes over and
