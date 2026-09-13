@@ -253,22 +253,22 @@ const { chromium } = require('playwright');
   console.log('ask path:', new URL(page.url()).pathname, '| chip:', await page.textContent('#ask-project'), '| hint:', await page.textContent('#ask-hint'));
   await shot('20-ask');
   await page.fill('#ask-question', 'What has to be ready for the design freeze?');
-  await page.click('#btn-ask-new');
-  await page.waitForSelector('#screen-thread:not([hidden])', { timeout: 15000 });
-  console.log('thread path:', new URL(page.url()).pathname, '| pending:', !(await page.locator('#thread-pending').isHidden()), '| steps:', (await page.locator('#thread-steps .step').allTextContents()).join(' > '));
-  // The picks screen (spec 5.3): the model chose, nothing is read yet; the groups of 5.4 fold with counts.
-  await page.waitForSelector('#thread-picks-head:not([hidden])', { timeout: 15000 });
+  // Spec 5.7: the pages sit under the question box, before the thread exists.
+  await page.waitForSelector('#ask-picker-home #ask-picker', { timeout: 10000 });
   await page.waitForSelector('#ask-estimate-notes .sec-list li', { state: 'attached', timeout: 10000 });
-  console.log('picks screen:', (await page.textContent('#thread-picks-status')).slice(0, 90), '| button:', await page.textContent('#btn-thread-ask'),
-    '| reasons:', await page.locator('#ask-estimate-notes .reason').count(), '| answers so far:', await page.locator('.turn.answer').count());
-  console.log('groups:', (await page.locator('#ask-estimate-detail details.group > summary').allTextContents()).map((t) => t.replace(/\s+/g, ' ').trim().slice(0, 60)).join(' | '));
-  console.log('no slider on the thread page:', await page.locator('#screen-thread input[type=range]').count() === 0, '| whole vault:', /whole vault/.test(await page.textContent('#thread-picks-status')), '| ticked pages:', await page.locator('#ask-estimate-notes input:checked').count());
+  console.log('pages under the new question:', await page.textContent('#ask-pages-summary'), '| estimate:', (await page.textContent('#ask-estimate')).slice(0, 80));
+  await page.click('#ask-estimate-detail summary');
   await page.click('#ask-estimate-detail details.group[data-group="chosen"] > summary');
   await page.fill('#ask-outline-filter', 'lessons');
   console.log('filter "lessons" shows:', await page.locator('#ask-estimate-notes .sec-list li:not([hidden])').count(), 'row(s)');
   await page.fill('#ask-outline-filter', '');
-  await shot('20b-picks');
-  await page.click('#btn-thread-ask');
+  await shot('20b-pages');
+  await page.click('#btn-ask-new');
+  await page.waitForSelector('#screen-thread:not([hidden])', { timeout: 15000 });
+  console.log('thread path:', new URL(page.url()).pathname, '| picks screen shown:', !(await page.locator('#thread-picks-head').isHidden()),
+    '| steps:', (await page.locator('#thread-steps .step').allTextContents()).join(' > '), '| answers so far:', await page.locator('.turn.answer').count());
+  console.log('no slider on the thread page:', await page.locator('#screen-thread input[type=range]').count() === 0,
+    '| the picker followed the question box:', await page.locator('#thread-form #ask-picker').count() === 1);
   // The steps (spec 5.4, decision 9) on the whole-vault path (spec 5.6): reading, writing, no check.
   await page.waitForFunction(() => /Reading \d+ notes/.test(document.querySelector('#thread-steps').textContent), null, { timeout: 15000 });
   console.log('steps while answering:', (await page.locator('#thread-steps .step').allTextContents()).join(' > '));
@@ -295,21 +295,13 @@ const { chromium } = require('playwright');
   console.log('ask pages:', await page.locator('#ask-estimate-notes .sec-list li').count(), 'core tags:', await page.locator('#ask-estimate-notes .core-tag').count());
   await page.click('#btn-ask-info');
   console.log('ask info shown:', !(await page.locator('#ask-info').isHidden()));
+  // A question asked back: the same picker under the box, no separate step (spec 5.7).
   await page.fill('#thread-question', 'And who approves it?');
+  await page.waitForTimeout(600);
+  console.log('follow-up pages:', await page.textContent('#ask-pages-summary'), '| stop button hidden:', await page.locator('#btn-thread-cancel').isHidden());
+  await shot('22a-follow-up-pages');
   await page.click('#btn-thread-ask');
-  await page.waitForSelector('#thread-picks-head:not([hidden])', { timeout: 15000 });
-  await page.waitForSelector('#ask-estimate-notes .sec-list li', { state: 'attached', timeout: 10000 });
-  console.log('follow-up picks screen shown; status:', (await page.textContent('#thread-picks-status')).slice(0, 200), '| kept tags:', await page.locator('#ask-estimate-notes .kept-tag').count());
-  await page.click('#ask-estimate-detail details.group[data-group="chosen"] > summary');
-  await shot('22a-follow-up-picks');
-  console.log('cancel keeps the question:');
-  await page.click('#btn-thread-cancel');
-  await page.waitForSelector('#thread-picks-head', { state: 'hidden', timeout: 10000 });
-  console.log('  after cancel, typed:', await page.inputValue('#thread-question'), '| answers:', await page.locator('.turn.answer').count());
-  await page.click('#btn-thread-ask');
-  await page.waitForSelector('#thread-picks-head:not([hidden])', { timeout: 15000 });
-  await page.click('#btn-thread-ask');
-  await page.waitForFunction(() => document.querySelectorAll('.turn.answer').length === 2, null, { timeout: 15000 });
+  await page.waitForFunction(() => document.querySelectorAll('.turn.answer').length === 2, null, { timeout: 20000 });
   console.log('turns:', await page.locator('.turn.answer').count(), '| board hint:', await page.locator('.hint-board').count());
   await shot('22-thread-two-turns');
   // reload: deep link keeps the thread

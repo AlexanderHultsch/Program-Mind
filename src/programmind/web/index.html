@@ -126,6 +126,7 @@
     <p class="lede">Any question about the process, the project, the roles or the numbers. One agent reads the vault and answers with the pages it used. Ask back as often as you like; a thread stays open until you close it.</p>
     <form id="ask-new-form" class="ask">
       <textarea id="ask-question" rows="4" placeholder="For example: What has to be ready for the design freeze, and who approves it?"></textarea>
+      <div id="ask-picker-home"></div>
       <div class="row between">
         <span id="ask-hint" class="muted small"></span>
         <button type="submit" class="primary" id="btn-ask-new">Ask</button>
@@ -160,13 +161,16 @@
         <p id="thread-picks-question" class="picks-question"></p>
         <p id="thread-picks-status" class="muted small"></p>
       </div>
-      <p class="eyebrow">Knowledge for this question <button type="button" class="info-btn" id="btn-ask-info" title="How the pages are chosen and read" aria-label="How the pages are chosen and read">i</button></p>
-      <div id="ask-info" class="small info-text" hidden><strong>The whole vault, whole pages.</strong> Every page of the project is read for every question, as long as the whole fits one read (the ceiling). You see the list before anything is read and may untick a page. One model call.<br><span class="muted">Only when the vault outgrows the ceiling does the model rank the pages first, the read fills from the top, and a check after the answer swaps in pages left unread, once. The shared core and the KPI notes come with every read.</span></div>
-      <p id="ask-estimate" class="estimate muted small">Estimating…</p>
-      <details id="ask-estimate-detail" class="estimate-detail"><summary class="muted small">What the agent would receive, and what to add or leave out</summary>
-        <input id="ask-outline-filter" type="text" class="outline-filter" placeholder="Filter pages…">
-        <div id="ask-estimate-notes"></div>
-      </details>
+      <!-- The pages of this question, under the box it is typed in (spec 5.7). Moved between the two forms by ask.js. -->
+      <div id="ask-picker">
+        <p id="ask-estimate" class="estimate muted small">Estimating…
+          <button type="button" class="info-btn" id="btn-ask-info" title="How the pages are chosen and read" aria-label="How the pages are chosen and read">i</button></p>
+        <div id="ask-info" class="small info-text" hidden><strong>The whole vault, whole pages.</strong> Every page of the project is read for every question, as long as the whole fits one read (the ceiling). Untick a page below to leave it out. One model call.<br><span class="muted">Only when the vault outgrows the ceiling does the model rank the pages first, the read fills from the top, the question waits for you, and a check after the answer swaps in pages left unread, once. The shared core and the KPI notes come with every read.</span></div>
+        <details id="ask-estimate-detail" class="estimate-detail"><summary id="ask-pages-summary" class="muted small">Pages read for this question</summary>
+          <input id="ask-outline-filter" type="text" class="outline-filter" placeholder="Filter pages…">
+          <div id="ask-estimate-notes"></div>
+        </details>
+      </div>
       <div class="row between">
         <button id="btn-thread-close" type="button" class="ghost">Close thread</button>
         <button id="btn-thread-cancel" type="button" class="ghost" hidden>Cancel</button>

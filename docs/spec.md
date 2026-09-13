@@ -455,6 +455,27 @@ checker runs only on a partial read), `picker.choose_prompt` (the ranking
 paragraph), the thread page (every page ticked, a filter over the list,
 beyond-the-ceiling rows tickable) and the walk.
 
+### 5.7 The question and its pages on one screen
+
+**Decided 13 September 2026**, after the first good run of 5.6 (a named
+person's VPDS tasks, then their subtasks, both answered from the whole
+vault). Alex: the picks screen "is unnecessary and does not feel smooth.
+We don't need this deeper step to be so dominant since we currently read
+the whole Obsidian." And for a question asked back: "keep the option to
+select or deselect data, but don't make it a separate step."
+
+| # | Decision |
+|---|---|
+| 1 | **Asking reads and answers**, in one step, whenever the whole vault fits the ceiling. Spec 5.3 decision 6 and 5.6 decision 2 are withdrawn for that case: there is no choice to review when everything is read. |
+| 2 | **The pages sit under the question box**, on the new-thread screen and in a thread alike: one folded line, "Pages read for this question - N pages", with the filter and the list inside. Untick a page and it is left out of the read. Nothing about it is modal, and it never opens itself. |
+| 3 | **The list is shown before the thread exists.** A question typed on the new-thread screen has no thread to hang an estimate on, so the estimate is served for a question and a project alone (`POST /api/ask/estimate`, no thread), and the first question shows its pages exactly as a later one does. |
+| 4 | **The picks screen stays for the one case that needs it**: the vault larger than one read, where the model ranked the pages and the ceiling cut some. Then the question waits, as 5.3 has it, and what was cut is shown. |
+| 5 | **The gaps line says what was actually read.** When the whole vault was read and nothing was unticked, the heading is "Not in the vault"; when a page was left out, by the ceiling or by Alex, it stays "Not in the pages read" (5.4, decision 6). The turn records which it was, so an old answer keeps its own wording. |
+
+**Built 13 September 2026** in the shell server (a question that fits goes
+straight to `asking`; the estimate without a thread), the thread page (the
+picker moved under the question box on both screens) and the walk.
+
 ## 6. Audit trail
 
 Every completed board run is logged, whether or not the follow-up loop that

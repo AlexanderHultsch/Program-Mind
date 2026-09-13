@@ -860,31 +860,46 @@ class TestAskThreads(unittest.TestCase):
         self.assertEqual(est["max_reads"], 2)
         self.assertTrue(est["whole_vault"])
 
-    def test_the_whole_vault_is_read_when_it_fits_and_a_page_can_be_unticked(self):
+    def test_the_pages_are_shown_before_the_thread_exists(self):
+        """Spec 5.7, decision 3: the first question sees its pages too."""
+        status, est = self.call("POST", "/api/ask/estimate", {"question": "Is the tooling late?"})
+        self.assertEqual(status, 200)
+        self.assertEqual(est["picked_by"], "vault")
+        self.assertTrue(est["whole_vault"])
+        self.assertIn("Tooling.md", [s["path"] for s in est["pages"]])
+        self.assertEqual(est["calls"], 1)
+        _, listed = self.call("GET", "/api/ask")
+        self.assertEqual([r for r in listed["threads"] if r["questions"] == 0 and r["title"] == "New thread"], [])
+
+    def test_a_question_that_fits_reads_and_answers_at_once_and_a_page_can_be_unticked(self):
         first_prompt = len(self.provider.prompts)
         _, created = self.call("POST", "/api/ask", {})
         tid = created["id"]
-        status, state = self.call("POST", f"/api/ask/{tid}/question", {"question": "Is the tooling late?"})
-        self.assertEqual((status, state["phase"], state["busy"], state["whole_vault"]), (200, "picks", False, True))   # no call, straight to the picks screen
-        self.assertGreater(state["page_count"], 1)
-        self.assertEqual([s["key"] for s in state["steps"]], ["picks", "read1", "ask1"])   # no choosing, no check
-        _, est = self.call("POST", f"/api/ask/{tid}/estimate", {"question": state["pending_question"]})
+        _, est = self.call("POST", f"/api/ask/{tid}/estimate", {"question": "Is the tooling late?"})
         self.assertEqual(est["picked_by"], "vault")
-        self.assertEqual(len(est["pages"]), state["page_count"])
         self.assertEqual(est["beyond"], [])
         role_page = next(s["path"] for s in est["pages"] if s["path"].startswith("Roles"))
-        _, est = self.call("POST", f"/api/ask/{tid}/estimate", {"question": state["pending_question"], "exclude": [role_page]})
+        _, est = self.call("POST", f"/api/ask/{tid}/estimate", {"question": "Is the tooling late?", "exclude": [role_page]})
         self.assertNotIn(role_page, [s["path"] for s in est["pages"]])
-        self.call("POST", f"/api/ask/{tid}/read", {"exclude": [role_page]})
+        # Spec 5.7, decision 1: asking reads and answers; there is no picks screen to pass.
+        status, state = self.call("POST", f"/api/ask/{tid}/question", {"question": "Is the tooling late?", "exclude": [role_page]})
+        self.assertEqual((status, state["phase"], state["busy"], state["whole_vault"]), (200, "asking", True, True))
+        self.assertEqual([s["key"] for s in state["steps"]], ["picks", "read1", "ask1"])   # no choosing, no check
         state = self._wait(tid)
         turn = state["turns"][0]
-        self.assertEqual(len(turn["paths"]), est["pages"].__len__())
+        self.assertEqual(len(turn["paths"]), len(est["pages"]))
         self.assertNotIn(role_page, turn["paths"])
         self.assertIn("Tooling.md", turn["paths"])
+        self.assertFalse(turn["read_all"])                                 # a page was unticked (5.7, decision 5)
         self.assertEqual([c["step"] for c in state["stats"]["calls"]], ["ask the vault"])
         prompt = [p for p in self.provider.prompts[first_prompt:] if "## Question to the vault" in p][-1]
         self.assertNotIn("## Table of contents", prompt)                   # 5.6, decision 5: noise when everything is read
         self.assertNotIn("## Pages read earlier", prompt)
+        # The tick sticks for the thread until it is put back.
+        self.call("POST", f"/api/ask/{tid}/question", {"question": "And who fixes it?", "exclude": []})
+        state = self._wait(tid)
+        self.assertTrue(state["turns"][-1]["read_all"])                    # nothing left out: the whole vault
+        self.assertIn(role_page, state["turns"][-1]["paths"])
 
     def test_the_page_is_given_the_answer_as_it_is_written(self):
         """Spec 4.1: the live text is the answer so far, read out of the
@@ -894,13 +909,6 @@ class TestAskThreads(unittest.TestCase):
             _, created = self.call("POST", "/api/ask", {})
             tid = created["id"]
             self.call("POST", f"/api/ask/{tid}/question", {"question": "Is the tooling late?"})
-            deadline = time.monotonic() + 10
-            while time.monotonic() < deadline:
-                _, state = self.call("GET", f"/api/ask/{tid}")
-                if state["phase"] == "picks":
-                    break
-                time.sleep(0.05)
-            self.call("POST", f"/api/ask/{tid}/read", {})
             live = ""
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:
@@ -922,12 +930,7 @@ class TestAskThreads(unittest.TestCase):
             _, created = self.call("POST", "/api/ask", {})
             self.call("POST", f"/api/ask/{created['id']}/question", {"question": "One?"})
             status, body = self.call("POST", f"/api/ask/{created['id']}/question", {"question": "Two?"})
-            self.assertEqual(status, 409)                                  # a choice waits on the picks screen (5.6: at once, no call)
-            self.assertIn("picks screen", body["error"])
-            status, _ = self.call("POST", f"/api/ask/{created['id']}/read", {})
-            self.assertEqual(status, 200)
-            status, body = self.call("POST", f"/api/ask/{created['id']}/question", {"question": "Two?"})
-            self.assertEqual(status, 409)                                  # now the read runs
+            self.assertEqual(status, 409)                                  # spec 5.7: the first question is already running
             self.assertIn("Wait", body["error"])
             status, _ = self.call("POST", f"/api/ask/{created['id']}/close", {"remember": False})
             self.assertEqual(status, 409)

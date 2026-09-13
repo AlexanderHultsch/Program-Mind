@@ -1832,6 +1832,15 @@ class BoardServer:
                 order.append(path)
         return order, reasons
 
+    def preview_estimate(self, body: dict[str, Any]) -> dict[str, Any]:
+        """What a question typed on the new-thread screen would read (spec
+        5.7, decision 3): the same answer as a thread's estimate, for a
+        question and a project alone. Nothing is created or kept."""
+        projects = body.get("projects")
+        thread = ask_mod.Thread(id=history_mod.new_id(),
+                                projects=[str(p) for p in projects or []] if projects is not None else list(knowledge_mod.active_projects(self.config)))
+        return self.ask_estimate(AskSession(thread), body)
+
     def ask_estimate(self, session: AskSession, body: dict[str, Any]) -> dict[str, Any]:
         """The first read as it would go (spec 5.5): the pages, whole, with
         the reason each; what the ceiling cuts; the size of the call."""
@@ -1844,10 +1853,13 @@ class BoardServer:
             text, kpi_text, contents_text = "", "", ""
         else:
             try:
+                # The table first: the order of the read is built from the
+                # vault's own pages, and a question asked before anything ran
+                # (spec 5.7, decision 3) has no table on the session yet.
+                table = self._table(session, question)
                 with session.lock:
                     order, reasons = self._ask_pages(session, question, extra)
                     picked_by = "model" if session.picks else "python"
-                table = self._table(session, question)
                 sel = knowledge_mod.gather_whole(self.config, question, order, ceiling=self._ceiling(),
                                                  projects=thread.projects, exclude=exclude)
                 kpi_text = ask_mod.project_kpi_text(self.config, thread.projects)
@@ -1952,9 +1964,11 @@ class BoardServer:
             session.kept = [path for path in self._read_before(session.thread) if path in pages]
             session.overflow = bool(fit.left) or table["trimmed"]
             if not session.overflow:
-                session.busy = False                       # every page fits: nothing to choose, straight to the picks screen
-                session.phase = "picks"
-                session.mark("picks")
+                # Spec 5.7, decision 1: everything fits, so there is nothing
+                # to review - the pages were chosen with the question.
+                session.phase = "asking"
+                session.mark("asked")
+                self._spawn(session, self._ask, session, question)
                 return
             session.phase = "choosing"                     # spec 5.3: the model ranks first
             session.mark("choosing")
@@ -2139,6 +2153,7 @@ class BoardServer:
                 "chosen_by": "vault" if not session.overflow else ("model" if session.picks else "python"),
                 "pick_reasons": {knowledge_mod.page_of(k): why for k, why in ((session.picks or {}).get("reasons") or {}).items()},
                 "rounds": rounds, "left": left, "cap_hit": cap_hit, "still_wanted": still_wanted,
+                "read_all": not session.overflow and not left and not thread.exclude,
             })
             session.clear_question()
             session.mark("answered")
@@ -2621,6 +2636,8 @@ def make_handler(server: BoardServer):
                     self._json(200, session.snapshot())
                 elif path == "/api/ask":
                     self._json(201, server.new_thread(body.get("projects"), body.get("budget")).snapshot())
+                elif path == "/api/ask/estimate":          # spec 5.7: before the thread exists
+                    self._json(200, server.preview_estimate(body))
                 elif path.startswith("/api/ask/"):
                     parts = path.split("/")
                     thread = server.get_thread(parts[3])

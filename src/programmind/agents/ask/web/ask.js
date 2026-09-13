@@ -15,6 +15,15 @@
 
   let askEstimateSeq = 0;
 
+  // Spec 5.7: one picker, under whichever question box is on screen.
+  function movePicker(where) {
+    const picker = $("ask-picker");
+    const home = where === "ask" ? $("ask-picker-home") : null;
+    if (home) { if (picker.parentElement !== home) home.appendChild(picker); return; }
+    const form = $("thread-form");
+    if (picker.parentElement !== form) form.insertBefore(picker, form.querySelector(".row.between"));
+  }
+
   function stopThreadPolling() { if (threadPollTimer) { clearInterval(threadPollTimer); threadPollTimer = null; } }
 
   function startThreadPolling() {
@@ -62,11 +71,11 @@
     $("btn-ask-new").disabled = true;
     try {
       const created = await api("POST", "/api/ask", { projects: PM.projects(), budget: PM.config.ask_budget });
-      thread = await api("POST", `/api/ask/${created.id}/question`, { question });
+      thread = await api("POST", `/api/ask/${created.id}/question`,
+        { question, extra: askPicks.extra, exclude: askPicks.exclude });
       store.del("ask-question");
       $("ask-question").value = "";
       PM.setPath(`/ask/${thread.id}`);
-      askPicks = { extra: [], exclude: [] };
       renderThread();
     } catch (err) { setError("ask-error", err.message); }
     $("btn-ask-new").disabled = false;
@@ -87,7 +96,7 @@
       : "<span class='muted'>no page named</span>";
     const dropped = t.dropped ? `<p class="muted small">${t.dropped} source(s) the model named were not among the pages sent and were dropped.</p>` : "";
     // Spec 5.4, decision 6: a gap says the pages sent did not hold it, not that the vault does not.
-    const gaps = (t.gaps || []).length ? `<div class="gaps"><span class="gaps-title">Not in the pages read</span><ul>${t.gaps.map((g) => `<li>${esc(g)}</li>`).join("")}</ul></div>` : "";
+    const gaps = (t.gaps || []).length ? `<div class="gaps"><span class="gaps-title">${t.read_all ? "Not in the vault" : "Not in the pages read"}</span><ul>${t.gaps.map((g) => `<li>${esc(g)}</li>`).join("")}</ul></div>` : "";
     const hint = t.decision_question ? `<p class="hint-board muted">This reads like a decision. <a href="/board" class="to-board">Put it to the Board</a> for an assessment by every swim lane.</p>` : "";
     const parse = t.parse_error ? `<p class="error small">${esc(t.parse_error)}; the text is shown as it came.</p>` : "";
     // Spec 5.4, decision 5: the sources fold up, and the pages read for the
@@ -126,6 +135,7 @@
 
   function renderThread() {
     if (!thread) return;
+    movePicker("thread");        // a new thread opens without passing through render()
     const closed = thread.status === "closed";
     if (thread.phase === "proposing") { show("proposing"); startThreadPolling(); return; }
     if (thread.phase === "proposal" && thread.proposal) { stopThreadPolling(); PM.showProposal(thread.proposal, PM.config.vault_path || "", memoryHandlers); return; }
@@ -187,12 +197,11 @@
     if (picks) {
       $("thread-picks-question").textContent = thread.pending_question;
       const parts = [];
-      if (thread.whole_vault) parts.push(`The whole vault fits in one read: all ${thread.page_count} page(s) are read unless you untick one.`);
-      else if (thread.picks) parts.push(`The vault is larger than one read (the ceiling). The model ranked ${thread.picks.full.length} item(s) first; the rest follows in the vault's order and the ceiling cuts at the end.`);
+      if (thread.picks) parts.push(`The vault is larger than one read (the ceiling). The model ranked ${thread.picks.full.length} item(s) first; the rest follows in the vault's order and the ceiling cuts at the end.`);
       else parts.push(`The vault is larger than one read, and the model's ranking did not come back usable${thread.pick_error ? ` (${thread.pick_error})` : ""}: the word ranking leads instead.`);
       if (thread.pick_dropped) parts.push(`${thread.pick_dropped} pick(s) named nothing in the vault and were dropped.`);
-      if (!thread.whole_vault) parts.push("After the answer a check looks for pages left unread and swaps them in, once.");
-      const keptCount = thread.whole_vault ? 0 : (thread.kept || []).length, droppedKept = Object.keys(thread.dropped_kept || {}).length;
+      parts.push("After the answer a check looks for pages left unread and swaps them in, once.");
+      const keptCount = (thread.kept || []).length, droppedKept = Object.keys(thread.dropped_kept || {}).length;
       if (keptCount) parts.push(`${keptCount} page(s) read earlier in this thread are kept.`);
       if (droppedKept) parts.push(`The model let ${droppedKept} kept page(s) go.`);
       if (thread.contents_trimmed) parts.push("The table of contents was trimmed to fit; a page may be missing.");
@@ -270,6 +279,8 @@
       html += group("beyond", "Beyond the ceiling", n(e.beyond.length), `one read may hold ${fmtNum(e.ceiling)} tokens; these did not fit. Tick one to read it first`,
         `<ul class="sec-list">${e.beyond.map(beyondRow).join("")}</ul>`);
     }
+    $("ask-pages-summary").textContent = `Pages read for this question · ${n(pages.length)}`
+      + ((e.beyond || []).length ? `, ${e.beyond.length} beyond the ceiling` : "");
     $("ask-estimate-notes").innerHTML = html;
     $("ask-estimate-notes").querySelectorAll("details.group").forEach((d) => d.addEventListener("toggle", () => {
       if (d.open) openGroups.add(d.dataset.group); else openGroups.delete(d.dataset.group);
@@ -292,18 +303,22 @@
   function requestAskEstimate() {
     if (askEstimateTimer) clearTimeout(askEstimateTimer);
     askEstimateTimer = setTimeout(async () => {
-      if (!thread || PM.route() !== "thread" || $("thread-form").hidden) return;
+      const onAsk = PM.route() === "ask";
+      if (!onAsk && (!thread || PM.route() !== "thread" || $("thread-form").hidden)) return;
       const seq = ++askEstimateSeq;
       try {
-        const e = await api("POST", `/api/ask/${thread.id}/estimate`, {
-          question: inPicks() ? thread.pending_question : $("thread-question").value,
+        const e = await api("POST", onAsk ? "/api/ask/estimate" : `/api/ask/${thread.id}/estimate`, {
+          question: onAsk ? $("ask-question").value : (inPicks() ? thread.pending_question : $("thread-question").value),
+          projects: onAsk ? PM.projects() : undefined,
           extra: askPicks.extra, exclude: askPicks.exclude,
         });
         if (seq !== askEstimateSeq) return;
         const learned = e.overhead_learned_from ? `overhead of ${fmtNum(e.overhead_per_call)} learned from ${e.overhead_learned_from} real call(s) of this thread` : `overhead of ${fmtNum(e.overhead_per_call)} assumed until the first real call`;
         const who = e.whole_vault ? "the whole vault" : e.picked_by === "model" ? "the model's ranking" : "the word ranking";
         const calls = e.whole_vault ? "1 model call" : (inPicks() ? "2 more model calls per round" : "1 ranking call, then 2 calls per round") + `, up to ${e.max_reads} rounds`;
-        $("ask-estimate").innerHTML = `<strong>${calls}</strong>, the read about <strong>${fmtNum(e.tokens_in)} tokens in</strong> (${fmtNum(e.knowledge_tokens)} of pages${e.contents_tokens ? `, ${fmtNum(e.contents_tokens)} of the table of contents` : ""}) · pages by ${who} · ${esc(learned)} · tokens are an estimate`;
+        $("ask-estimate").innerHTML = `<strong>${calls}</strong> · reads ${(e.pages || []).length} page(s) by ${who}, about <strong>${fmtNum(e.tokens_in)} tokens in</strong> · <span class="muted">${esc(learned)} · tokens are an estimate</span>`
+          + ` <button type="button" class="info-btn" id="btn-ask-info" title="How the pages are chosen and read" aria-label="How the pages are chosen and read">i</button>`;
+        $("btn-ask-info").addEventListener("click", () => { $("ask-info").hidden = !$("ask-info").hidden; });
         renderAskSections(e);
       } catch (err) {
         if (seq === askEstimateSeq) $("ask-estimate").textContent = `No estimate: ${err.message}`;
@@ -316,7 +331,7 @@
 
   $("ask-question").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) newThread(e); });
 
-  $("ask-question").addEventListener("input", () => store.set("ask-question", $("ask-question").value));
+  $("ask-question").addEventListener("input", () => { store.set("ask-question", $("ask-question").value); requestAskEstimate(); });
 
   $("thread-form").addEventListener("submit", askInThread);
 
@@ -350,7 +365,11 @@
   PM.register({
     id: "ask",
     match: (pathname) => (pathname === "/ask" ? "ask" : pathname.startsWith("/ask/") ? "thread" : null),
-    render: (route) => { if (route === "ask") { show("ask"); loadThreads(); } else openThread(location.pathname.split("/")[2]); },
+    render: (route) => {
+      movePicker(route);
+      if (route === "ask") { show("ask"); askPicks = { extra: [], exclude: [] }; loadThreads(); requestAskEstimate(); }
+      else openThread(location.pathname.split("/")[2]);
+    },
     onLeave: stopThreadPolling,
     boot: () => { $("ask-question").value = store.get("ask-question") || ""; },
     stats: () => thread,

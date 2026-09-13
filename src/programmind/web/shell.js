@@ -81,7 +81,7 @@
       : !status.ok ? `<span class="error">${esc(status.error)}</span>` : "";
     $("home-hint").innerHTML = problem || `${status.notes} notes in the vault.`;
     $("board-hint").innerHTML = problem || `Reads up to ${fmtNum(config.token_budget)} tokens of notes from your vault per member.`;
-    $("ask-hint").innerHTML = problem || `Reads the whole vault for every question, every page whole, as long as it fits one read of ${fmtNum(config.ask_ceiling)} tokens; you see the list first. One model call.`;
+    $("ask-hint").innerHTML = problem || "";     // spec 5.7: the estimate under the box already says what is read
     $("site-address").innerHTML = `This site: <strong>http://${esc(config.site_host || "program-mind.localhost")}:${esc(location.port || "80")}/</strong> · also reachable at http://localhost:${esc(location.port || "80")}/`;
     $("link-bug").href = `${config.repository || ""}/issues`;
     const obsidian = $("link-obsidian");
