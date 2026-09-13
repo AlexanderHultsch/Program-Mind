@@ -14,14 +14,27 @@ exist today:
   vault. Who sits on the board is decided by role profiles in the vault, not
   by code.
 * **Ask the vault.** Any question, answered by one agent from the vault, in a
-  thread you can ask back in. The model chooses the pages from the vault's
-  table of contents, you see the choice before anything is read, and a page
-  read once stays with the thread. Every answer names the pages it used,
-  marks what was not in the pages read, and never invents a rule, a date or
-  an owner.
+  thread you can ask back in. Every answer names the pages it used, says what
+  the pages did not hold, and never invents a rule, a date or an owner.
+
+Both agents work the same way underneath:
+
+* **The whole vault is read for every question.** Every page of the project,
+  whole, for Ask the vault and for every board member alike, as long as the
+  whole fits one read. Nothing is ranked, nothing is guessed at, and no call
+  is spent choosing what to read.
+* **You see the pages before they are read.** Under the question box, one
+  folded line lists them with a tick each. Untick one and it stays out of
+  that read. Asking then reads and answers in one step.
+* **The answer appears as it is written**, the way a chat does. On the board
+  each member writes in its own card. What you watch is for the eye only:
+  the answer that is kept, its sources and every check come from the
+  finished call.
 
 The full specification, including every decision and the reason behind it,
-is `docs/spec.md`.
+is `docs/spec.md`. It opens with what the program does today and where each
+piece was decided. `docs/handover.md` is the working note for whoever picks
+the project up next.
 
 ## Start here
 
@@ -59,8 +72,8 @@ the menu at the right holds Options, Statistics, the vault in Obsidian, the
 Archive, Privacy, About and the link to report a bug. Hovering a status chip
 shows its detail; clicking one opens the status page. Inside the board a step
 line (Question, Clarify, Confirm, Result) goes back to any earlier step with
-everything typed kept. Options changes the knowledge source,
-the model, the token budget, the audit folder or the theme.
+everything typed kept. Options changes the knowledge source, the model, the
+audit folder or the theme.
 
 The command line is still there for the board:
 
@@ -74,6 +87,13 @@ Python 3.11 or newer and git. The standard library only, no `pip`
 dependencies, no build step for the page. You also need
 [OpenCode](https://opencode.ai) on the machine; the wizard prints the install
 command for your platform if it is missing.
+
+For the answer to appear as it is written, Program Mind keeps one
+`opencode serve` process beside itself and reads its event stream
+(`provider.opencode.mode`, `auto` by default). If that server will not
+start, every call falls back to one `opencode run` and only the live view
+is lost. `python scripts/run.py probe-stream --mode serve` shows what your
+OpenCode streams.
 
 The wizard asks first how you will use the site:
 
@@ -96,20 +116,18 @@ Non-interactive use: `python scripts/setup.py --yes --profile private
 ## The vault
 
 Every agent reads the `.md` files under the configured vault folder for each
-question. Sections are ranked in Python against the question and the page
-properties (lead and affected swim lanes, the phases a task is active in, the
-aliases and the abbreviations table), the best-ranked ones are sent within
-the token budget, one line each for further pages rides on top, and the
-board can additionally let the model pick from the candidates in one extra
-call. KPI pages reach the agents with the date their numbers were checked.
-A vault that cannot be read stops the run with an error; there is no
-fallback source.
+question, whole, with the KPI pages and the date their numbers were checked.
+One ceiling stands over a single read, `knowledge.max_read_tokens`
+(120,000 by default), so a call cannot fail at the model's context limit;
+set it to what your model can take. A vault that cannot be read stops the
+run with an error; there is no fallback source.
 
-Every question goes through two model calls: the first reads the table of
-contents of the vault (every page with its properties and summary) and
-names what to read; you see that choice, with the model's reasons, and add
-or leave out pages before the second call reads them and answers. The
-board's knowledge pick on the confirm screen works the same way.
+If a vault ever outgrows that ceiling, the older machinery takes over and
+only then: the model reads the vault's table of contents and ranks the
+pages, the read fills from the top until the ceiling, a check after the
+answer swaps in pages that were left out, and the board falls back to one
+ranked selection per member with its slider. The screen says which of the
+two is happening.
 
 Nothing is written to the vault without your confirmation. When you close a
 topic or a thread the agent proposes a note and a place for it; you edit and
@@ -125,11 +143,12 @@ member, or one note with several members, plus one conduct note that is the
 same for every member. The repository ships no members, only the conduct
 note and the templates the wizard installs. See `roles/README.md`.
 
-Two helpers keep the vault ready for the agents:
+Three helpers on the command line:
 
 ```
 python scripts/run.py enrich          # phases, aliases and AI summaries on the pages, after a yes
-python scripts/run.py eval-knowledge  # hit rate of the knowledge selection over tests/knowledge_eval/
+python scripts/run.py eval-knowledge  # hit rate of the ranked selection over tests/knowledge_eval/
+python scripts/run.py probe-stream    # can this OpenCode hand over the text as it is written?
 ```
 
 ## How the code is laid out
@@ -139,9 +158,9 @@ One shared shell, one folder per agent, on both sides:
 ```
 src/programmind/
   shell/        the server and the API routing
-  knowledge/    the vault: selection, the AI pick, enrichment, evaluation
-  memory/       the memory step and the audit trail
-  ai/           the model provider, the OpenCode client, the prompt loader
+  knowledge/    the vault: reading it whole, the ranking behind the ceiling, enrichment, evaluation
+  memory/       the memory step, the audit trail, the work kept on disk
+  ai/           the model provider, the two OpenCode clients, the prompt loader
   agents/
     board/      board.py, clarify.py, roles.py, prompts/, web/board.js
     ask/        ask.py, prompts/ask.md, web/ask.js
@@ -162,6 +181,16 @@ python -m unittest discover -s tests
 ```
 
 One suite for everything: the knowledge selection, the board, the clarifier,
-the memory step, Ask the vault, the server and its routes, the setup wizard.
-No test calls a model; a fake provider answers by the markers each prompt
-carries.
+the memory step, Ask the vault, the live answer over OpenCode's server mode,
+the server and its routes, the setup wizard. No test calls a model: a fake
+provider answers by the markers each prompt carries, and a faked OpenCode
+server answers the streaming client.
+
+Before a commit, `sh tools/precommit.sh` runs the suite and checks that the
+example configuration still parses. The browser walk drives the whole site
+against a fake model in a real browser:
+
+```
+python3 tools/browser_walk/demo_server.py                 # in one terminal
+node tools/browser_walk/walk.js                           # in another, from a folder it may write shots/ into
+```

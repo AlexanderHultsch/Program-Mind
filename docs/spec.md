@@ -1,14 +1,48 @@
 # Program Mind — specification
 
+**What this file is.** Every decision this program rests on, with the date
+it was taken and the reason behind it. It is written in the order the
+decisions were taken, not in the order a reader would meet them, because
+the record is the point: a decision that was later withdrawn stays here,
+marked, so that nobody takes it again for the same wrong reason.
+
+**How to read it.** "The program as it stands" below says what happens
+today and names the section that decided it; follow the one you need. A
+subsection that has been overtaken says so in its first lines and names
+what overtook it. What follows such a line is history, and still worth
+reading for the reason.
+
+**The rules of the file.** English, plain, short sentences (section 7). A
+decision keeps its date. A decision that no longer holds is marked, never
+deleted. Nothing here is a wish: what is written as built is built, and
+what is not yet built says so.
+
+## The program as it stands, 13 September 2026
+
+| What happens | Where it was decided |
+|---|---|
+| Two agents on one Obsidian vault: the **Board**, where every member answers a decision alone and one call consolidates them, and **Ask the vault**, one agent answering any question in a thread. They sit in a shell with a home page, a menu and an archive. | Sections 3, 10, 11 |
+| **Every question reads the whole vault**: every page of the chosen project, whole, for Ask the vault and for every board member alike, as long as the whole fits one read (`knowledge.max_read_tokens`, 120,000). Nothing is ranked and no call is spent choosing while it fits. | 5.6, 5.8 |
+| **The pages sit under the question box**, one folded line with a tick per page. Untick one and it is left out of that read. Asking reads and answers in one step. | 5.7 |
+| **The answer appears as the model writes it**, through OpenCode's server mode; on the board, each member writes in its own card. What is streamed is for the eye: the answer, its sources and every check come from the finished call. | 4.1, 5.8 |
+| **Sources and gaps.** Every answer names the pages it used, and Python drops a source that was never sent. A gap says "Not in the vault" when the whole vault was read, and "Not in the pages read" when something was left out. | 10.1, 5.7 |
+| **Nothing is written into the vault** without a yes: the memory note at the close of a topic or a thread is proposed, shown in full, and written only after Alex confirms. | 5, AP-4 |
+| **The work is kept** as one JSON file per board topic and per thread, beside the configuration, never in the vault, with the paths of the pages sent but never their text. | 11.1, decision 9 |
+| **When a vault outgrows one read** the older machinery takes over, and only then: the model ranks the pages from the table of contents, the read fills to the ceiling, a check after the answer swaps in what was left, and the board falls back to its per-member ranking with the slider and the selection dropdown. | 5.1, 5.3, 5.5 |
+
 ## 1. Purpose and scope
 
 Program Mind (Decision Board until 10 September 2026, see section 11) is a
-local site that hosts AI agents on an Obsidian vault; the board is its first
-agent, with two front ends: a command line and the browser interface (section 9). Alex poses a
-question — a topic, its context, the options under consideration and any hard
-constraints — and the board's members — whoever has a role profile in the roles folder,
-section 3.4 — answer it from their professional perspectives, each in a
-model call that cannot see any other member's answer. One more call synthesises them into one recommendation.
+local site that hosts AI agents on an Obsidian vault. Two agents run on it
+today. The **board** (section 3) takes a decision: Alex poses a question — a
+topic, its context, the options under consideration and any hard
+constraints — and the board's members — whoever has a role profile in the
+roles folder, section 3.4 — answer it from their professional perspectives,
+each in a model call that cannot see any other member's answer; one more
+call consolidates them into one recommendation. **Ask the vault**
+(section 10) answers any question from the same vault, in a thread that
+stays open until it is closed. The board has a second front end on the
+command line; everything else lives in the browser interface (section 9).
 
 The tool does one thing: run this board and hold the follow-up conversation
 that follows it, for the length of one topic. It has no database, no
@@ -45,36 +79,6 @@ programme's swim lanes, each speaking for every role and responsibility
 under their lead; more roles
 (working level, leadership within a swimlane) can be added as profiles
 later. One board run is one call per member plus one synthesis call.
-
-### 3.4 Role profiles
-
-**Decided 8 September 2026.** What a member *is* — character, skills, the
-KPIs it watches, the process tasks it owns, how it assesses, what it pushes back on —
-is a Markdown note in one folder, written and edited in Obsidian, read
-fresh on every board run (`roles.py`, `load_roles`). Nothing caches it: an
-edit is in force on the next question. The same notes define *who* sits on
-the board (3.1).
-
-| Rule | Reason |
-|---|---|
-| One folder, chosen by Alex: `knowledge.roles_folder`, picked in Options or by the setup wizard with the folder dialog. Empty means a folder in the vault whose name starts with "Roles" (`Roles`, `Roles&Responsibilities`) or reads "R&R". No folder, no board: the repository ships no member profiles | One place to look, named as Alex names it. Nothing in code can stand in for the board. |
-| **What is the same for every member** — character, how to answer, the rule that a member speaks for every role and responsibility under its lead, and that it judges options against its own measures — is one note in the same folder with `kind: conduct` in its front matter (`_Board member conduct.md`), prepended to every member's profile on every call | The personality that is shared is written once, edited in one place, and never duplicated into every profile. |
-| **KPIs: the role names them, the network holds the numbers** (decided 9 September 2026; the "KPI Check" member was removed the same day). Each member's profile lists **its own** measures under `## Targets I am judged on` and never a value — they differ from member to member, and the conduct note carries only the rule, not the list. `MG0`, Maturity Gate Zero, is the baseline; later gates and the current state are recorded against it | Each swim lane is held to its own measures and is the one that knows them. Numbers change every few weeks; a role description should not. |
-| A member's numbers are a note in the vault with `kind: kpi`, `affected_swimlanes: [<name>, ...]` plus `lead_swimlane: <name>` (the members it is attached to; `member:` is still read) and `updated: YYYY-MM-DD` in its front matter. `knowledge.kpi_notes` attaches every such note to its member's call, on every run, whatever the question, capped at 2,500 tokens per member and excluded from the ranked selection. A member without a note is told so in its prompt and must state its assumption rather than invent a baseline | The data a member is judged against is mandatory context for that member (AP-1: attached by Python, deterministically), not a note that may or may not rank high enough for this question. The confirm screen names which members have a KPI note. |
-| **Age is computed, not trusted to the model.** Python puts the note's `updated` date, its age in days, and a warning past `knowledge.kpi_stale_days` (default 30) above the note; the conduct note requires every quoted value to carry its date, and a value whose date cannot be seen to be treated as an assumption | A number without its date is the most expensive kind of confident answer. |
-| **Every** note marked `kind: conduct` is prepended, in file-name order, so common ground can be split across files if wanted; one ships (`_Board member conduct.md`) | Behaviour is written once and edited in one place. Programme facts are not written here at all — they belong in the knowledge network (decided 9 September 2026: the `_Programme context.md` note was removed for that reason). |
-| **One file, one member.** The official role description is kept word for word under `## Official description`; what the board needs beyond it — targets, what the role protects when it cannot have everything, and the process tasks that name the role (links to the VPDS task pages, decided 9 September 2026: no keyword list, the process is the source) — is written below it in the same file. A second file naming the same member is ignored and reported on the confirm screen, never merged | One place to read a member, and the official text stays recognisable as official. The added sections are what an organisational job description cannot carry: a description written to define a job states no target and says nothing about what the role sacrifices, which is exactly what a decision needs. |
-| The conduct note also tells every member to **read the knowledge network first** and to say where a fact came from, and warns that a role description written for the organisation may state no target and may share whole sections with every other member | The vault is young: silence in it is missing information, not evidence. And the shared sections of official descriptions — customer focus, change management, risk management, innovation — are common ground, not what makes a member's view worth hearing. |
-| A profile with a heading and nothing under it is *not filled yet*: it is left off the board and named on the confirm screen, in Options and in the CLI | An empty note must never produce an empty opinion, and must never disappear silently either. |
-| Every role page carries `Part of Decision Board AI: true` or `false` in its front matter (a checkbox in Obsidian; `board: false` is still read). `false` keeps the page in the folder, linkable from the process, without a seat on the board — Account Management (decided 9 September 2026) | The membership is visible on every role page as one checkbox, and a role the process names but the board does not seat stays linkable. |
-| Notes whose name starts with `_`, or whose front matter says `kind: conduct` or `kind: template`, are never members | Support files live next to the profiles without joining the board. |
-| One file per role, or one file with several roles. A file whose front matter names a `member:`, or with at most one level-one heading, is one role (named by the front matter or the file). A file with two or more level-one headings is several roles, one per heading, with `key: value` lines directly under the heading as that role's metadata | Alex writes the board the way he thinks about it — six notes, or one note called Board. |
-| **A role file carries `level:` and nothing else about itself.** The icon and colour are derived from the member's name in code, and the line the synthesis is told about a member is the first sentence under `## What I protect when I cannot have everything`, falling back to the first sentence of the profile. `perspective`, `icon`, `color`, `short` and `order` are still read when present, but nothing needs them | A role description is about the role, not about how it is drawn. And official descriptions open with wording every swim lane shares, so the first sentence would tell the synthesis nothing — what a member protects is exactly what distinguishes it. |
-| Each member receives its own note in full, under `## Role profile`, declared authoritative for that call, and nothing about any other member — not even their names | FR-3.3a: a member never sees another member's material, and no longer knows who else is on the board. |
-| The synthesis receives one line per member (`title: perspective`), never the full profiles | It weighs who said what; it does not need to be six people. |
-| The roles folder is excluded from the knowledge selection when it lies inside the vault (`knowledge._roles_inside`) | A profile is mandatory context for one member, not a note competing for the token budget of all of them. |
-| Fewer than two profiles is `RolesUnavailable`, shown as an error with the folder named | A board of one is not a board; a misconfigured folder must not silently become the six examples. |
-| The setup wizard proposes the detected folder (else `<vault>/Roles`), accepts any other, and offers to create it with the conduct note, a profile template and, on request, the example board (`roles/examples/`: the nine swim lanes of one programme, Alex's own, shipped with his consent) when it is missing or has fewer than two filled profiles; Options installs the support files. Existing files are never overwritten | Members are Alex's to write; the examples are his own to edit or delete. |
 
 ### 3.2 Process
 
@@ -118,6 +122,36 @@ nothing survives the process exiting. In the browser interface a topic ends
 with **Close topic**, which asks whether the decision should be written to
 memory (section 5); the CLI conversation ends at a blank line, without that
 step.
+
+### 3.4 Role profiles
+
+**Decided 8 September 2026.** What a member *is* — character, skills, the
+KPIs it watches, the process tasks it owns, how it assesses, what it pushes back on —
+is a Markdown note in one folder, written and edited in Obsidian, read
+fresh on every board run (`roles.py`, `load_roles`). Nothing caches it: an
+edit is in force on the next question. The same notes define *who* sits on
+the board (3.1).
+
+| Rule | Reason |
+|---|---|
+| One folder, chosen by Alex: `knowledge.roles_folder`, picked in Options or by the setup wizard with the folder dialog. Empty means a folder in the vault whose name starts with "Roles" (`Roles`, `Roles&Responsibilities`) or reads "R&R". No folder, no board: the repository ships no member profiles | One place to look, named as Alex names it. Nothing in code can stand in for the board. |
+| **What is the same for every member** — character, how to answer, the rule that a member speaks for every role and responsibility under its lead, and that it judges options against its own measures — is one note in the same folder with `kind: conduct` in its front matter (`_Board member conduct.md`), prepended to every member's profile on every call | The personality that is shared is written once, edited in one place, and never duplicated into every profile. |
+| **KPIs: the role names them, the network holds the numbers** (decided 9 September 2026; the "KPI Check" member was removed the same day). Each member's profile lists **its own** measures under `## Targets I am judged on` and never a value — they differ from member to member, and the conduct note carries only the rule, not the list. `MG0`, Maturity Gate Zero, is the baseline; later gates and the current state are recorded against it | Each swim lane is held to its own measures and is the one that knows them. Numbers change every few weeks; a role description should not. |
+| A member's numbers are a note in the vault with `kind: kpi`, `affected_swimlanes: [<name>, ...]` plus `lead_swimlane: <name>` (the members it is attached to; `member:` is still read) and `updated: YYYY-MM-DD` in its front matter. `knowledge.kpi_notes` attaches every such note to its member's call, on every run, whatever the question, capped at 2,500 tokens per member and excluded from the ranked selection. A member without a note is told so in its prompt and must state its assumption rather than invent a baseline | The data a member is judged against is mandatory context for that member (AP-1: attached by Python, deterministically), not a note that may or may not rank high enough for this question. The confirm screen names which members have a KPI note. |
+| **Age is computed, not trusted to the model.** Python puts the note's `updated` date, its age in days, and a warning past `knowledge.kpi_stale_days` (default 30) above the note; the conduct note requires every quoted value to carry its date, and a value whose date cannot be seen to be treated as an assumption | A number without its date is the most expensive kind of confident answer. |
+| **Every** note marked `kind: conduct` is prepended, in file-name order, so common ground can be split across files if wanted; one ships (`_Board member conduct.md`) | Behaviour is written once and edited in one place. Programme facts are not written here at all — they belong in the knowledge network (decided 9 September 2026: the `_Programme context.md` note was removed for that reason). |
+| **One file, one member.** The official role description is kept word for word under `## Official description`; what the board needs beyond it — targets, what the role protects when it cannot have everything, and the process tasks that name the role (links to the VPDS task pages, decided 9 September 2026: no keyword list, the process is the source) — is written below it in the same file. A second file naming the same member is ignored and reported on the confirm screen, never merged | One place to read a member, and the official text stays recognisable as official. The added sections are what an organisational job description cannot carry: a description written to define a job states no target and says nothing about what the role sacrifices, which is exactly what a decision needs. |
+| The conduct note also tells every member to **read the knowledge network first** and to say where a fact came from, and warns that a role description written for the organisation may state no target and may share whole sections with every other member | The vault is young: silence in it is missing information, not evidence. And the shared sections of official descriptions — customer focus, change management, risk management, innovation — are common ground, not what makes a member's view worth hearing. |
+| A profile with a heading and nothing under it is *not filled yet*: it is left off the board and named on the confirm screen, in Options and in the CLI | An empty note must never produce an empty opinion, and must never disappear silently either. |
+| Every role page carries `Part of Decision Board AI: true` or `false` in its front matter (a checkbox in Obsidian; `board: false` is still read). `false` keeps the page in the folder, linkable from the process, without a seat on the board — Account Management (decided 9 September 2026) | The membership is visible on every role page as one checkbox, and a role the process names but the board does not seat stays linkable. |
+| Notes whose name starts with `_`, or whose front matter says `kind: conduct` or `kind: template`, are never members | Support files live next to the profiles without joining the board. |
+| One file per role, or one file with several roles. A file whose front matter names a `member:`, or with at most one level-one heading, is one role (named by the front matter or the file). A file with two or more level-one headings is several roles, one per heading, with `key: value` lines directly under the heading as that role's metadata | Alex writes the board the way he thinks about it — six notes, or one note called Board. |
+| **A role file carries `level:` and nothing else about itself.** The icon and colour are derived from the member's name in code, and the line the synthesis is told about a member is the first sentence under `## What I protect when I cannot have everything`, falling back to the first sentence of the profile. `perspective`, `icon`, `color`, `short` and `order` are still read when present, but nothing needs them | A role description is about the role, not about how it is drawn. And official descriptions open with wording every swim lane shares, so the first sentence would tell the synthesis nothing — what a member protects is exactly what distinguishes it. |
+| Each member receives its own note in full, under `## Role profile`, declared authoritative for that call, and nothing about any other member — not even their names | FR-3.3a: a member never sees another member's material, and no longer knows who else is on the board. |
+| The synthesis receives one line per member (`title: perspective`), never the full profiles | It weighs who said what; it does not need to be six people. |
+| The roles folder is excluded from the ranked knowledge selection when it lies inside the vault (`knowledge._roles_inside`) | A profile is mandatory context for one member, not a note competing for the token budget of all of them. *Since 5.3 the role pages are in the table of contents, and since 5.6 they are read with the rest of the vault: a question about who is responsible is answered from them. A member's own profile still reaches it as its profile, whatever else is read.* |
+| Fewer than two profiles is `RolesUnavailable`, shown as an error with the folder named | A board of one is not a board; a misconfigured folder must not silently become the six examples. |
+| The setup wizard proposes the detected folder (else `<vault>/Roles`), accepts any other, and offers to create it with the conduct note, a profile template and, on request, the example board (`roles/examples/`: the nine swim lanes of one programme, Alex's own, shipped with his consent) when it is missing or has fewer than two filled profiles; Options installs the support files. Existing files are never overwritten | Members are Alex's to write; the examples are his own to edit or delete. |
 
 ## 4. AI provider and the OpenCode invocation contract
 
@@ -200,7 +234,7 @@ writes to it only after Alex confirms a note.
 | The source is one folder, chosen in the browser interface's Options with a native folder dialog or typed in; stored as `knowledge.vault_path` | One thing to configure. "Obsidian or a text file" was never a real choice: Obsidian opens any folder of `.md` files, and a single `.md` file in a folder of its own is a vault of one note. |
 | No backup source. A configured folder that cannot be read stops the run with an error naming the folder | Alex's decision: an error message, not a fallback. A board that silently answered without its knowledge would look like a board that had read it. |
 | The whole vault is read; every `.md` file under the folder, Obsidian's own `.obsidian` and `.trash` folders skipped | Alex's decision: the whole memory, no folder selection. |
-| Selection is deterministic Python (AP-1): notes are ranked by how many of the question's terms appear in their title, tags, file name and body, and packed best-first into `knowledge.token_budget` (default 6,000 tokens per call). When every section fits, every section is sent | The model never lists or reads files itself. Reason on what the question touches, not on everything ever written. |
+| Selection is deterministic Python (AP-1): notes are ranked by how many of the question's terms appear in their title, tags, file name and body, and packed best-first into `knowledge.token_budget` (default 6,000 tokens per call). When every section fits, every section is sent | The model never lists or reads files itself. Reason on what the question touches, not on everything ever written. *Overtaken 13 September 2026 (5.6, 5.8): every page is sent, and this ranking runs only when the vault does not fit one read. What holds unchanged is the sentence's second half - no model lists or reads files; Python decides what goes into the prompt.* |
 | The selected notes go to the clarifier and, appended to `Context`, to every member (FR-3.7). The synthesis call does not receive them | The synthesis reasons over the six assessments only, as before. |
 | **One vault, several projects** (decided 9 September 2026). A page that belongs to one or more projects lists them in its front matter: `projects: [Dual DCDC]`. A page without the property is common to every project: the process, the roles, the guide. `knowledge.project`, chosen in Options from the vault's `kind: project` pages, names the project every question is about; the ranked selection and the KPI notes (3.4) then take only the common pages and the pages of that project, and every member's prompt states the project. Empty means every page is used. The project name also opens the file name of a project-specific page (`KPIs/Dual DCDC - Maturity Gates`), because Obsidian resolves a wikilink by file name and a second project will want a page of the same name | The process is common, the numbers are not: a second project's maturity gates must never reach this project's Hardware member. The property is the machine-readable scope and survives a rename; the file-name prefix keeps links unambiguous and the folders sorted by project. Folders stay by kind (`KPIs/`, `Projects/`, `Teams/`), not by project, so the guide's one rule per folder holds; a project that grows can get a subfolder under the kind folder without changing the property rule. |
 | Every note the board writes carries YAML front matter: `title`, `tags` (always including `decision-board`), `created`, `source: decision-board` | The board's own notes stay findable in Obsidian's search and graph. |
@@ -212,13 +246,22 @@ writes to it only after Alex confirms a note.
 The board never writes to the vault on its own initiative — every write goes
 through the confirmation step, and the proposal call has no file access.
 
-**Cost.** One topic in the browser interface is one clarifier call, seven
-board calls, one call per follow-up, and one memory-proposal call if Alex
-says yes to remembering. Each call carries the fixed overhead described in
-section 4 plus up to `knowledge.token_budget` tokens of notes for the
-clarifier and member calls.
+**Cost.** One topic in the browser interface is one clarifier call, one
+call per member plus the consolidation, one call per follow-up, and one
+memory-proposal call if Alex says yes to remembering. Each call carries the
+fixed overhead described in section 4 plus the knowledge it is sent: since
+5.6 and 5.8 that is the whole vault, up to `knowledge.max_read_tokens`, in
+every call that answers something. A board of five in the individual mode
+therefore reads the vault five times, and once in the combined mode; the
+confirm screen states the figure before the run.
 
 ### 5.1 Knowledge selection, second generation
+
+> **Overtaken 13 September 2026 by 5.6 and 5.8.** While the whole vault
+> fits one read, nothing below runs: every page goes to every call and no
+> call is spent choosing. What follows is the record of the decision and
+> the description of the fallback, which is still the path a vault larger
+> than one read takes.
 
 **Decided 10 September 2026, built the same day in `knowledge.py`, `picker.py`,
 `enrich.py`, `evaluate.py`, `board.py`, `server.py` and `web/`.** Goal: better answers through
@@ -303,6 +346,11 @@ could double the summary marker.
 
 ### 5.2 Fresh knowledge on every turn
 
+> **Still in force, and now invisible.** Every call still selects for the
+> question it is answering; since 5.6 that selection is the whole vault, so
+> nothing is left behind to go stale. Decision 3, the ranking query, applies
+> where the ranking still runs.
+
 **Decided and built 10 September 2026**, after the first day of use: the
 clarifier's second round asked who the project managers are and could not
 read the page that names them, because the vault had been read once, for
@@ -319,6 +367,12 @@ the first question, and never again.
 | 7 | The slider's budget applies per call, as it always has. Reading again costs tokens, not calls. |
 
 ### 5.3 The model chooses, from the whole table of contents
+
+> **Partly overtaken.** The choosing call runs only when the vault does not
+> fit one read (5.6, decision 3), and the picks screen of decision 1 goes
+> with it (5.7, decision 1); the slider of decision 4 went in 5.5. What
+> stands is the principle: when everything cannot be read, the model
+> decides what is read, not a formula, and Python keeps the last word.
 
 **Decided 10 September 2026, after the second day of use.** The question
 "which VPDS tasks is [a named person] responsible for" found nothing: the
@@ -360,6 +414,13 @@ either agent. The board's pick answers in the shape of 5.1 (`full`,
 
 ### 5.4 Follow-ups, sticky pages and the second pass
 
+> **Partly overtaken.** Decisions 1, 2, 5, 6 and 10 stand - the chooser's
+> memory, the sticky pages, the folded sources, the gap wording (refined by
+> 5.7, decision 5) and the core's skip list. The second pass of decisions 7
+> and 8 was replaced by the loop of 5.5, the budget line and the four
+> groups of decisions 3 and 4 by 5.6 and 5.7, and decision 11 with them;
+> the steps of decision 9 are now those of 5.6, decision 6.
+
 **Decided 11 September 2026, after the third day of use.** Two questions
 in one thread showed the weak spots of 5.3. The first, "which VPDS tasks
 is [a named person] responsible for", was answered well: the chooser took
@@ -397,6 +458,11 @@ button, the folded sources, the step card) and the walk. The chooser's
 `drop` is applied to the kept list, never to its own picks.
 
 ### 5.5 Quality first: whole pages, no budget, and the loop
+
+> **Partly overtaken by 5.6.** The checker and its loop run only when a page
+> was left unread; while everything is read there is nothing to check for.
+> What stands, and holds everywhere: no budget, whole pages, one ceiling per
+> read, and the rule that a stream never becomes an answer.
 
 **Decided 11 September 2026, after the first real run of 5.4.** The
 follow-up "what are the exact subtasks within those VPDS tasks" read 13
@@ -495,7 +561,10 @@ goes. Alex: "bring the board on the same status / functionally."
 every member, the estimate, the live text per member), `board.py` (an
 `on_text` per member call and for the consolidation), `ai/livejson.py`
 (the field of a half-written answer, shared with Ask the vault) and the
-board page.
+board page. As built: the combined form does not stream. It writes every
+member's entry and the direction in one JSON object, so there is no single
+field to follow while it is written; the individual form, which is the
+default, streams every call.
 
 ## 6. Audit trail
 
@@ -608,10 +677,10 @@ Greeting, one text box
 | **Back and Forward on every stage**, in the top bar, and the browser's own Back does the same instead of leaving the page. Back while the model works stops the running calls first (`opencode` processes are started with a handle the session can kill; a stopped call raises "opencode run was stopped" and its late result is discarded), then returns to the confirm screen or the previous round of questions. Back from the result goes to the confirm screen with the result kept behind Forward; Back from a proposal discards it. Forward is greyed unless there is something to go forward to. The header mark is a button: new question, stopping anything still running | "Currently while waiting for the thinking of the disciplines I wanted to go back. The Edge Back goes to Google, and the agents were still running." |
 | **Sections, not pages.** Every note is split at its level-one to level-three headings (`knowledge.split_sections`; a note under 1,200 characters stays whole) and the ranking scores sections, so the budget buys the parts that match the question. Sections of one note stay together under the note's path, each labelled with its heading | The VPDS task pages are long tables; a question about timing needed one section of them, not the page. Same budget, far more relevant content, and most topics fit in half the budget. |
 | **A knowledge block per member.** At run time the sections are ranked again per chosen member, by the question and by the member's own terms (its targets, process tasks and title, `board.role_terms`), within the budget each; the project page of the active project is pinned first for everyone, within a quarter of the budget (`knowledge.gather_for_members`). Citations are verified against what that member received | Manufacturing gets the manufacturing sections and Finance the finance sections; the identical six-thousand-token block sent seven times was the biggest cost in the first real run. |
-| **The knowledge slider on the confirm screen**, 0 to 12,000 tokens per member, defaulting to `knowledge.token_budget`, with a live estimate under it: the exact call count and "about N tokens in", computed by the run's own prompt builders (`board.prompt_sizes`) plus a per-call overhead learned from this topic's real calls (median of real input minus estimated prompt tokens; 6,300 until the first real call), and a fold-out naming what each member would receive. Output tokens and time are not estimated | The cost lever belongs where the decision is made, not in Options. Calls are exact; tokens are labelled an estimate because the character rule is off by up to a fifth against the model's tokenizer. |
+| **The knowledge slider on the confirm screen** *(gone since 13 September 2026 while the vault fits one read, 5.8, decision 3)*, 0 to 12,000 tokens per member, defaulting to `knowledge.token_budget`, with a live estimate under it: the exact call count and "about N tokens in", computed by the run's own prompt builders (`board.prompt_sizes`) plus a per-call overhead learned from this topic's real calls (median of real input minus estimated prompt tokens; 6,300 until the first real call), and a fold-out naming what each member would receive. Output tokens and time are not estimated | The cost lever belongs where the decision is made, not in Options. Calls are exact; tokens are labelled an estimate because the character rule is off by up to a fifth against the model's tokenizer. |
 | **The prompt is ordered for caching**: rules, conduct note and input first and identical for every member, then the member's knowledge block, then the member's name, profile and KPI data, then one closing line | A gateway that caches a shared prefix, as the company gateway does for OpenCode's own system prompt, serves the shared part from cache. It does not change the token count in the statistics; it can change cost and latency. |
 | **The project is chosen on the home page**, in a dropdown with checkboxes like a spreadsheet filter: the vault's `kind: project` pages, "All projects", several at once. The default comes from `knowledge.project` (one name, or several separated by commas), "Save as default" in the picker writes the current choice back; Options no longer carries the field. The choice travels with the question: the clarifier's selection, every member's block, the KPI notes and the pinned project pages are scoped to it (`knowledge.active_projects`, `for_project` with a list) | "The programme selection needs to go from Options to the main page, only where the question is asked; default is the Dual DCDC programme, but several can be selected." |
-| **Manual picks under the estimate.** The fold-out lists, per member, the sections the ranking chose with a checkbox each (unticking leaves that section out for every member: `exclude`), and below it the whole outline of the scoped vault with a filter box (ticking sends that section whole to every member on top of the slider: `extra`). The slider does not move; the estimate follows and states what the picks add. Picks and exclusions are kept in the draft and applied at run time | A pick is a deliberate decision that a section matters, so it must not compete with the ranking for the budget, and the reader must see what it costs. |
+| **Manual picks under the estimate.** *(Since 13 September 2026 the fold-out is one list of the pages every member receives, with a tick each; see 5.8, decision 3.)* The fold-out lists, per member, the sections the ranking chose with a checkbox each (unticking leaves that section out for every member: `exclude`), and below it the whole outline of the scoped vault with a filter box (ticking sends that section whole to every member on top of the slider: `extra`). The slider does not move; the estimate follows and states what the picks add. Picks and exclusions are kept in the draft and applied at run time | A pick is a deliberate decision that a section matters, so it must not compete with the ranking for the budget, and the reader must see what it costs. |
 | **The ask-back list shows the whole board**, unasked members marked "not asked yet". A member asked for the first time in a follow-up gets its knowledge block and KPI data built on demand, and its prompt says it produced no assessment in the first round | The first version listed only the members asked initially. That was a miss: bringing a swim lane in later is exactly what a follow-up is for. |
 | The page scrolls to the top only when the screen changes, not on every poll | Polling redraws the result screen once a second; the reader was pulled back up while the board was thinking. |
 
@@ -695,8 +764,8 @@ question from the Obsidian vault and says where the answer comes from.
 | 1 | **One agent, one call per question.** No clarifier, no confirm screen, no members. The question goes to the model together with the knowledge block; the answer comes back in the same request cycle the board uses (a background thread, the page polls). |
 | 2 | **A thread, not a single question.** After an answer the user asks back in the same thread, as often as wanted; each call carries the thread's earlier questions and answers, as the board's follow-up does, so "and who approves that?" works. Leaving the page, reloading or restarting the server does not end a thread: it stays open in the list and continues where it stopped. |
 | 3 | **Knowledge: the whole vault, the board's Python ranking, no pick call.** `select_sections` with the question's terms and no member terms; the shared core applies (project page, phases and gates, the abbreviation rows the question uses, the Definitions of tasks active in a named phase); one-line summaries of further pages ride on top as for a member; KPI notes of the chosen project are attached with their age, as for the board. The AI-assisted pick is not used here: one call is the point. *Withdrawn 10 September 2026 by 5.3: the model chooses from the table of contents first, and the picks screen comes before every read.* |
-| 4 | **Slider, default 12,000 tokens** (`ask.token_budget`), twice a member's default since there is only one call, with the same "i" and the same estimate line ("1 call · about T tokens"). Manual picks and exclusions from the estimate list work as on the confirm screen. |
-| 5 | **Answer with sources and gaps.** The model returns JSON: the answer in Markdown, the sources it used as `path#heading` with one line why each, and the gaps: what the question asked that the vault does not hold. Python keeps only sources that were actually sent (as the board's fact check does), drops the rest and says how many it dropped. The page shows the answer, then "Sources" as links that open the page in Obsidian (`obsidian://open?vault=<name>&file=<path>`, the vault name being the vault folder's name unless `knowledge.vault_name` says otherwise) with the section name beside, then "Not in the vault" when the gaps list is not empty. The prompt (`ask.md`) forbids inventing a rule, a date or an owner: what is not in the block is a gap, never a guess. A question that asks for a decision rather than a fact gets its answer and one line pointing to the Board. |
+| 4 | **Slider, default 12,000 tokens** (`ask.token_budget`), *withdrawn 11 September 2026 by 5.5, decision 1: a read has no budget, only a ceiling,*  twice a member's default since there is only one call, with the same "i" and the same estimate line ("1 call · about T tokens"). Manual picks and exclusions from the estimate list work as on the confirm screen. |
+| 5 | **Answer with sources and gaps.** *(The heading over the gaps says "Not in the vault" when the whole vault was read and "Not in the pages read" when something was left out: 5.7, decision 5.)* The model returns JSON: the answer in Markdown, the sources it used as `path#heading` with one line why each, and the gaps: what the question asked that the vault does not hold. Python keeps only sources that were actually sent (as the board's fact check does), drops the rest and says how many it dropped. The page shows the answer, then "Sources" as links that open the page in Obsidian (`obsidian://open?vault=<name>&file=<path>`, the vault name being the vault folder's name unless `knowledge.vault_name` says otherwise) with the section name beside, then "Not in the vault" when the gaps list is not empty. The prompt (`ask.md`) forbids inventing a rule, a date or an owner: what is not in the block is a gap, never a guess. A question that asks for a decision rather than a fact gets its answer and one line pointing to the Board. |
 | 6 | **Threads are kept and listed.** Every thread is saved as one JSON file under `server.threads_folder` (default `threads/` next to `config.local.json`, git-ignored), never in the vault: the questions, the answers with sources and gaps, the knowledge paths sent, the statistics. The `/ask` page lists the threads (first question, date, number of questions) and reopens one for reading and further questions. A thread can be deleted from the list. |
 | 7 | **A thread is closed only by the user, after a confirmation.** Nothing closes it on its own. A closed thread stays readable in the list and takes no further questions. **Close thread may propose a vault note**, through the board's memory step unchanged: the same proposal call, the same outline of the vault, the same confirm screen, the same folder and front matter, written only after a yes. Discard leaves the thread as it is. |
 | 8 | **Audit trail** as for the board: one `ask` entry per call with the counts and durations, nothing of the text. Statistics per thread as for a topic. |
@@ -727,6 +796,11 @@ New: `ask.py` (the prompt assembly, the JSON parsing with the source check, the 
 
 ### 10.4 As built, where it differs from the decisions
 
+> Read 5.5 to 5.7 first: what the agent does today - the whole vault, whole
+> pages, the picker under the question box, the answer written on the page -
+> was decided there. What follows is how the agent of 10 September differed
+> from the decisions of 10.1, and is kept for the reasons it gives.
+
 The ranking query was the question plus the two questions before it in the
 thread; since 10 September 2026 (spec 5.2, decision 3) it is the question
 alone, with the earlier ones joining only when the new question carries no
@@ -743,7 +817,10 @@ thread's calls when a thread is open, the board's topic otherwise.
 
 ### 10.5 Out of scope for now
 
-The AI-assisted pick for the agent, any write into the vault other than the confirmed memory note, more than one agent per question, threads shared between machines.
+Any write into the vault other than the confirmed memory note, more than
+one agent per question, threads shared between machines. *The first item
+of this list - no AI-assisted pick for the agent - was withdrawn on
+10 September 2026 by 5.3 and is moot since 5.6: the whole vault is read.*
 
 ## 11. Program Mind: the app shell
 
