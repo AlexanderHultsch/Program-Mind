@@ -207,67 +207,21 @@ def cmd_serve(config: dict, args: argparse.Namespace) -> int:
     return serve(config, args.config, port=args.port, open_browser=not args.no_browser)
 
 
-def cmd_probe_stream(config: dict) -> int:
-    """Does ``opencode run --format json`` print the model's text as it
-    arrives, or only when it is done? Decided 11 September 2026 (a live
-    answer on the page needs the first): the same command, environment
-    and model as every real call, a counting prompt, and one line per
-    event as it comes in, with the seconds since the start."""
-    import subprocess
-    import time
+def cmd_probe_stream(config: dict, args: argparse.Namespace) -> int:
+    """Can OpenCode give us the model's text as it arrives (11 September
+    2026)? One short call per way; the page can only show a live answer if
+    one of them streams."""
+    from programmind.ai import probe
 
-    from programmind.ai.opencode_client import OpenCodeProvider, opencode_environment
-    from programmind.ai.provider import TASK_BOARD, resolve_model
-
-    model = resolve_model(config, TASK_BOARD)
-    if not model:
-        print("No model configured (provider.models.board).", file=sys.stderr)
+    try:
+        return probe.probe(config, args.mode)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
         return 2
-    provider = OpenCodeProvider(config)
-    command = provider._build_command(model)
-    prompt = "Count from 1 to 40, one number per line, and write one short sentence about the weather after every ten numbers."
-    print("command:", " ".join(command[:-1]), "(the prompt on standard input)")
-    started = time.monotonic()
-    proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, encoding="utf-8", errors="replace", env=opencode_environment(config))
-    assert proc.stdin is not None and proc.stdout is not None
-    proc.stdin.write(prompt)
-    proc.stdin.close()
-    text_events: list[float] = []
-    for line in proc.stdout:
-        at = time.monotonic() - started
-        line = line.rstrip("\n")
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            print(f"{at:6.1f}s  {line[:160]}")
-            continue
-        part = event.get("part") if isinstance(event.get("part"), dict) else {}
-        kind = str(event.get("type", "?"))
-        text = part.get("text") if isinstance(part.get("text"), str) else ""
-        if kind == "text" or part.get("type") == "text":
-            text_events.append(at)
-            print(f"{at:6.1f}s  text  {len(text):5d} chars  {text[:70]!r}")
-        else:
-            print(f"{at:6.1f}s  {kind}")
-    proc.wait()
-    total = time.monotonic() - started
-    print()
-    if not text_events:
-        print(f"No text event in {total:.1f}s: the run failed; see the lines above.")
-        return 1
-    spread = text_events[-1] - text_events[0]
-    if len(text_events) > 1 and spread > 1.0:
-        print(f"{len(text_events)} text events over {spread:.1f}s of a {total:.1f}s run: JSON mode streams. A live answer is possible.")
-    else:
-        print(f"{len(text_events)} text event(s), the first at {text_events[0]:.1f}s of a {total:.1f}s run: "
-              "JSON mode prints the text when it is done. A live answer needs OpenCode's server mode.")
-    return 0
 
 
 COMMANDS: dict[str, Callable[..., int]] = {
-    "board": cmd_board,        # "serve" takes the parsed arguments and is dispatched in main()
-    "probe-stream": cmd_probe_stream,
+    "board": cmd_board,        # "serve" and "probe-stream" take the parsed arguments and are dispatched in main()
 }
 
 
@@ -294,7 +248,9 @@ def build_parser() -> argparse.ArgumentParser:
     enrich_parser.add_argument("--yes", action="store_true", help="do not ask before writing")
     enrich_parser.add_argument("--no-summaries", action="store_true", help="phases and aliases only, no model call")
     enrich_parser.add_argument("--refresh", action="store_true", help="rewrite every summary, not only the missing ones")
-    subparsers.add_parser("probe-stream", help="does opencode run print the model's text as it arrives? (one short call)")
+    probe_parser = subparsers.add_parser("probe-stream", help="can OpenCode give us the model's text as it arrives? (one short call per way)")
+    probe_parser.add_argument("--mode", choices=("json", "plain", "serve", "all"), default="json",
+                              help="which way in to try: the JSON run format, the plain one, OpenCode's server mode, or all three")
     eval_parser = subparsers.add_parser("eval-knowledge", help="hit rate of the knowledge selection over the evaluation set")
     eval_parser.add_argument("--file", default=None, help="the question set (default: tests/knowledge_eval/questions.json)")
     eval_parser.add_argument("--selection", choices=("python", "ai"), default="python")
@@ -314,6 +270,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_enrich(config, args)
     if args.command == "eval-knowledge":
         return cmd_eval_knowledge(config, args)
+    if args.command == "probe-stream":
+        return cmd_probe_stream(config, args)
     return COMMANDS[args.command](config)
 
 
