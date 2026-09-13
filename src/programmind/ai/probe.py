@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import subprocess
 import threading
@@ -30,8 +31,19 @@ import urllib.request
 from typing import Any
 
 LINE = 74                 # how much of a line or a payload is printed
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 PROMPT = ("Count from 1 to 40, one number per line, and write one short sentence about the weather "
           "after every ten numbers.")
+
+
+def answer_text(chunk: str) -> str:
+    """What of a chunk of plain output is the model's answer: no colour
+    codes, and not OpenCode's own banner line (``> build - model``), which
+    is printed the moment the run starts and would otherwise look like the
+    answer arriving early (seen 13 September 2026, where it made this probe
+    report streaming that is not there)."""
+    text = _ANSI.sub("", chunk).replace("\r", "")
+    return "\n".join(line for line in text.split("\n") if not line.strip().startswith(">")).strip()
 
 
 def _model(config: dict) -> tuple[str, str, str]:
@@ -97,8 +109,11 @@ def probe_run(config: dict, *, plain: bool) -> bool:
     for at, chunk in _chunks(proc, started):
         if plain:
             text = chunk.decode("utf-8", "replace")
-            times.append(at)
-            print(f"{at:6.1f}s  {len(chunk):5d} bytes  {text[:LINE]!r}")
+            answer = answer_text(text)
+            if answer:
+                times.append(at)
+            mark = "text " if answer else "other"
+            print(f"{at:6.1f}s  {mark} {len(chunk):5d} bytes  {text[:LINE]!r}")
             continue
         buffer += chunk
         while b"\n" in buffer:
@@ -172,6 +187,27 @@ def _find(routes: list[str], method: str, *words: str) -> str | None:
     return None
 
 
+def _unwrap(value: Any) -> Any:
+    """``{"data": {...}}`` is how this OpenCode wraps an answer; the older
+    shape is the object itself (seen 13 September 2026)."""
+    if isinstance(value, dict) and "id" not in value and isinstance(value.get("data"), dict):
+        return value["data"]
+    return value
+
+
+def _texts(node: Any, found: list[str]) -> None:
+    """Every ``text`` string anywhere in an event, however it is nested."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "text" and isinstance(value, str) and value:
+                found.append(value)
+            else:
+                _texts(value, found)
+    elif isinstance(node, list):
+        for item in node:
+            _texts(item, found)
+
+
 def probe_serve(config: dict) -> bool:
     from programmind.ai.opencode_client import _config_key, opencode_environment
     model, provider_id, model_id = _model(config)
@@ -203,23 +239,24 @@ def probe_serve(config: dict) -> bool:
         proc.terminate()
         return False
     routes = _routes(spec)
-    print(f"the server answers; {len(routes)} route(s). The ones that matter:")
-    for route in routes:
-        if any(word in route.lower() for word in ("session", "event", "message", "prompt")):
-            print("   ", route)
-    session_route = _find(routes, "POST", "/session") or "/session"
-    message_route = (_find(routes, "POST", "session", "{", "message") or _find(routes, "POST", "session", "{", "prompt")
-                     or "/session/{id}/message")
+    print(f"the server answers; {len(routes)} route(s).")
+
     # The event stream, read in the background: what arrives, and when.
     times: list[float] = []
     kinds: dict[str, int] = {}
-    first_text: list[str] = []
+    samples: list[str] = []
+    pieces: list[str] = []
     stop = threading.Event()
     stream_started = time.monotonic()
+    stream_url = None
+    for candidate in ("/api/event", "/event", "/global/event"):
+        if _find(routes, "GET", candidate.rstrip("/")) or candidate == "/event":
+            stream_url = base + candidate
+            break
 
-    def stream() -> None:
+    def stream(url: str) -> None:
         try:
-            with urllib.request.urlopen(f"{base}/event", timeout=180) as response:
+            with urllib.request.urlopen(url, timeout=300) as response:
                 for raw in response:
                     if stop.is_set():
                         return
@@ -231,50 +268,70 @@ def probe_serve(config: dict) -> bool:
                         event = json.loads(line[5:].strip())
                     except json.JSONDecodeError:
                         continue
-                    kind = str(event.get("type", "?"))
+                    body = _unwrap(event)
+                    kind = str(body.get("type") or event.get("type") or "?")
                     kinds[kind] = kinds.get(kind, 0) + 1
-                    blob = json.dumps(event, ensure_ascii=False)
-                    if '"text"' in blob and "part" in blob:
+                    found: list[str] = []
+                    _texts(body, found)
+                    text = max(found, key=len) if found else ""
+                    if text and kind not in ("session.updated", "session.created"):
                         times.append(at)
-                        if not first_text:
-                            first_text.append(blob[:LINE * 6])
-                        print(f"{at:6.1f}s  {kind}  {len(blob):5d} bytes")
-                    elif kind not in ("server.connected", "storage.write"):
+                        pieces.append(text)
+                        if len(samples) < 2:
+                            samples.append(json.dumps(event, ensure_ascii=False)[:LINE * 6])
+                        print(f"{at:6.1f}s  {kind}  {len(text):5d} chars  {text[-LINE:]!r}")
+                    elif kind not in ("storage.write", "server.connected"):
                         print(f"{at:6.1f}s  {kind}")
         except Exception as exc:
             print("the event stream ended:", str(exc)[:LINE])
 
-    threading.Thread(target=stream, daemon=True).start()
+    print("event stream:", stream_url)
+    threading.Thread(target=stream, args=(stream_url,), daemon=True).start()
     time.sleep(0.5)
-    status, session = _post(f"{base}{session_route}", {}, timeout=30)
-    session_id = session.get("id") if isinstance(session, dict) else None
-    print(f"POST {session_route} -> {status} {('session ' + str(session_id)) if session_id else str(session)[:LINE]}")
+
+    session_id = None
+    for route in ("/api/session", "/session"):
+        status, answer = _post(f"{base}{route}", {}, timeout=30)
+        body = _unwrap(answer)
+        session_id = body.get("id") if isinstance(body, dict) else None
+        print(f"POST {route} -> {status} {('session ' + str(session_id)) if session_id else str(answer)[:LINE]}")
+        if session_id:
+            break
     if not session_id:
         stop.set()
         proc.terminate()
         return False
-    url = f"{base}{message_route.replace('{id}', session_id).replace('{sessionID}', session_id)}"
-    bodies = [{"model": {"providerID": provider_id, "modelID": model_id},
-               "parts": [{"type": "text", "text": PROMPT}]},
-              {"providerID": provider_id, "modelID": model_id,
-               "parts": [{"type": "text", "text": PROMPT}]}]
-    status = 0
-    for n, body in enumerate(bodies, start=1):
-        at = time.monotonic() - stream_started
-        print(f"{at:6.1f}s  POST the question (shape {n}) ...")
-        status, answer = _post(url, body)
-        print(f"{time.monotonic() - stream_started:6.1f}s  -> {status} {str(answer)[:LINE]}")
+
+    part = {"type": "text", "text": PROMPT}
+    shapes = [("model nested", {"model": {"providerID": provider_id, "modelID": model_id}, "parts": [part]}),
+              ("model flat", {"providerID": provider_id, "modelID": model_id, "parts": [part]})]
+    status, answer = 0, ""
+    for route in ("/api/session/{id}/prompt", "/session/{id}/message", "/session/{id}/prompt_async"):
+        if not _find(routes, "POST", route.split("/{")[0].lower()):
+            continue
+        url = f"{base}{route.replace('{id}', session_id)}"
+        for name, body in shapes:
+            at = time.monotonic() - stream_started
+            print(f"{at:6.1f}s  POST {route} ({name}) ...")
+            status, answer = _post(url, body)
+            print(f"{time.monotonic() - stream_started:6.1f}s  -> {status} {str(answer)[:LINE * 2]}")
+            if status < 400:
+                break
         if status < 400:
             break
-    time.sleep(1.0)
+    time.sleep(1.5)
     stop.set()
     proc.terminate()
     print("event types seen:", ", ".join(f"{k} x{v}" for k, v in sorted(kinds.items())) or "(none)")
-    if first_text:
-        print("the first event carrying text, as it came:")
-        print("   ", first_text[0])
-    if status >= 400:
-        print("\nserver mode: the question was refused; the shapes above are what to fix.")
+    for sample in samples:
+        print("an event carrying text, as it came:")
+        print("   ", sample)
+    if len(pieces) > 1:
+        grows = pieces[1].startswith(pieces[0][:40])
+        print("the text arrives as", "the whole answer so far, each event replacing the last" if grows
+              else "pieces to be joined")
+    if status >= 400 or not status:
+        print("\nserver mode: the question was refused or no route matched; the shapes above are what to fix.")
         return False
     return _verdict(times, time.monotonic() - stream_started, "server mode")
 
