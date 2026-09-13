@@ -27,7 +27,7 @@ config = {"provider": {"models": {"board": "opencode/big-pickle"}}, "knowledge":
 config_path.write_text(json.dumps(config))
 
 class Slow(AiProvider):
-    def complete(self, task, prompt):
+    def complete(self, task, prompt, on_text=None):
         if "## Answer to check" in prompt:
             # The checker (spec 5.5): wants the lessons page once, then is content.
             time.sleep(0.8)
@@ -93,6 +93,11 @@ class Slow(AiProvider):
                 text = json.dumps({"applies": True, "view": f"- {member}: rework is the only option that keeps SOP.\n- The late tooling is a schedule problem, not a design problem.", "impact": ["Switching -> new tooling at supplier Y -> 10 weeks lead time lands after SOP", "Rework -> 180k budget used up -> no reserve for a second iteration"], "risks": ["Supplier X slips again", "Rework consumes the remaining budget"], "recommendation": "- Rework at supplier X.\n- Put a weekly gate on the rework plan.", "facts_from_network": [{"fact": "Supplier X tooling is 6 weeks late", "source": "Suppliers/Housing tooling.md"}, {"fact": "Rework budget left is 180k EUR", "source": "Budget 2026.md"}, {"fact": "MG3 is on 12 March", "source": "Timing plan.md"}], "own_judgement": ["A second rework iteration would cost a mid five-figure sum", "Supplier Y needs about 10 weeks for new tooling"]})
         else:
             text = "{}"
+        if on_text is not None and "## Question to the vault" in prompt:
+            for cut in range(10, len(text), max(1, len(text) // 12)):     # as the server mode streams (spec 4.1)
+                time.sleep(0.12)
+                on_text(text[:cut])
+            on_text(text)
         return AiResult(text=text, provider="opencode", model="big-pickle", input_tokens=8025, output_tokens=200, duration_seconds=1)
 
 httpd, _ = create_http_server(config, config_path, port=8765, provider=Slow())

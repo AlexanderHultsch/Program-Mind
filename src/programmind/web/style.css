@@ -445,6 +445,19 @@ legend { padding: 0 var(--s1); font-size: var(--fs-help); font-weight: 600; colo
 .turn .first-answer .a { margin-top: var(--s2); padding: var(--s2) var(--s3); background: var(--bg); border-radius: var(--r); }
 .kept-tag { display: inline-block; padding: 0 var(--s2); font-size: .7rem; color: var(--accent); background: var(--accent-soft); border-radius: var(--r-pill); }
 .turn .hint-board { margin-top: var(--s2); font-size: var(--fs-help); }
+/* The answer being written (spec 4.1): the card it will stand in, with a
+   caret. Its own class, not .turn: a half-written answer must not answer to
+   the selectors that count finished turns. */
+.card.centered.writing .spinner { display: none; }      /* the answer itself shows the work now */
+.live-answer { padding: var(--s4) var(--s5); background: var(--card); border: 1px dashed var(--line);
+  border-radius: var(--r-lg); }
+.live-answer .a p { margin: var(--s2) 0; }
+.live-answer .a p:first-child { margin-top: 0; }
+.live-answer .a ul, .live-answer .a ol { margin: var(--s2) 0; padding-left: 1.15rem; }
+.live-answer .a::after { content: ""; display: inline-block; width: .5em; height: 1em; margin-left: 2px;
+  vertical-align: text-bottom; background: var(--accent); animation: caret 1s steps(1) infinite; }
+@keyframes caret { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .live-answer .a::after { animation: none; } }
 .bubble { max-width: min(46rem, 90%); margin-left: auto; padding: var(--s2) var(--s4); color: var(--accent-ink);
   background: var(--accent); border-radius: var(--r-lg) var(--r-lg) var(--r-sm) var(--r-lg); }
 .bubble .q { margin: 0; font-weight: 500; }

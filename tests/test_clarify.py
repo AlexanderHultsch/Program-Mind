@@ -25,7 +25,7 @@ class FakeProvider(AiProvider):
         self.text = text
         self.prompts: list[str] = []
 
-    def complete(self, task: str, prompt: str) -> AiResult:
+    def complete(self, task: str, prompt: str, on_text=None) -> AiResult:
         self.prompts.append(prompt)
         return AiResult(text=self.text, provider="fake", model="m", input_tokens=1, output_tokens=1, duration_seconds=0)
 

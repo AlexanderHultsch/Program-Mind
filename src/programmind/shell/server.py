@@ -38,6 +38,7 @@ from typing import Any
 
 from programmind import __version__
 from programmind.ai.opencode_client import opencode_config_problem
+from programmind.ai.opencode_server import stop_shared
 from programmind.agents.board import clarify as clarify_mod
 from programmind.knowledge import knowledge as knowledge_mod
 from programmind.memory import history as history_mod
@@ -46,6 +47,7 @@ from programmind.agents.ask import ask as ask_mod
 from programmind.knowledge import picker
 from programmind.agents.board import roles as roles_mod
 from programmind.ai.opencode_client import stop_call
+from programmind.ai import provider as ai_provider
 from programmind.ai.provider import TASK_BOARD, AiNotConfiguredError, AiProvider, AiResult, build_provider
 from programmind.memory.audit import log_run
 from programmind.agents.board.board import (
@@ -138,7 +140,7 @@ class RecordingProvider(AiProvider):
         self._inner = inner
         self._session = session
 
-    def complete(self, task: str, prompt: str) -> AiResult:
+    def complete(self, task: str, prompt: str, on_text=None) -> AiResult:
         started = time.monotonic()
         step, member = _call_label(prompt, self._session.phase)
         session = self._session
@@ -149,7 +151,7 @@ class RecordingProvider(AiProvider):
         with session.lock:
             session.active_threads.add(tid)
         try:
-            result = self._inner.complete(task, prompt)
+            result = self._inner.complete(task, prompt, on_text)
         except Exception as exc:
             if not session.cancelled.is_set():
                 session.record_call(step, member, None, None, time.monotonic() - started, error=str(exc)[:120])
@@ -524,6 +526,8 @@ class AskSession:
         # Spec 5.5: the loop's rounds; the steps carry them with real numbers.
         self.round = 0                              # the answer round running, 1-based
         self.read_counts: list[int] = []            # pages read per round, 0 while a round's read is not done
+        # Spec 4.1: what the model has written so far, for the page's eye only - never stored.
+        self.live = ""
         # Spec 5.6: the whole vault is read unless it does not fit the ceiling; then the model ranks and the checker runs.
         self.overflow = False
         self.page_count = 0                         # pages of the vault for the question
@@ -533,6 +537,12 @@ class AskSession:
 
     def mark(self, phase: str) -> None:
         self.marks.append({"phase": phase, "at": time.time()})
+
+    def set_live(self, text: str) -> None:
+        """What the model has written so far (spec 4.1, decision 3): shown
+        on the page, never parsed and never stored."""
+        with self.lock:
+            self.live = text
 
     def record_call(self, step: str, member: str, input_tokens: int | None, output_tokens: int | None,
                     seconds: float, error: str | None = None, estimated: int | None = None) -> None:
@@ -564,6 +574,7 @@ class AskSession:
         self.kept, self.dropped_kept = [], {}
         self.round, self.read_counts = 0, []
         self.overflow, self.page_count = False, 0
+        self.live = ""
 
     def steps(self) -> list[dict[str, str]]:
         """The steps of the running question and which one it is on (spec
@@ -608,6 +619,7 @@ class AskSession:
                 "contents_tokens": self.contents_tokens, "contents_trimmed": self.contents_trimmed,
                 "kept": list(self.kept), "dropped_kept": dict(self.dropped_kept), "steps": self.steps(),
                 "round": self.round, "whole_vault": not self.overflow, "page_count": self.page_count,
+                "live": self.live,
                 "projects": list(thread.projects), "budget": thread.budget,
                 "extra": list(thread.extra), "exclude": list(thread.exclude),
                 "turns": deepcopy(thread.turns),
@@ -1536,7 +1548,8 @@ class BoardServer:
         profile = str(_get(self.config, "setup.profile", "") or "")
         binary = shutil.which("opencode") if self._provider_override is None else "(provider given in code)"
         out: dict[str, Any] = {"state": "red", "model": model, "config_file": config_file, "opencode": binary,
-                               "profile": profile, "detail": "", "last_call": self.ai_check}
+                               "profile": profile, "detail": "", "last_call": self.ai_check,
+                               "streams": ai_provider.streams(self.config)}
         problems: list[str] = []
         unverified: list[str] = []
         if not model:
@@ -2062,10 +2075,13 @@ class BoardServer:
                         session.read_counts.append(0)
                         session.phase = "asking"
                 partial = bool(left)          # 5.6, decision 5: the table of contents only when a page was left unread
+                session.set_live("")
                 answer = ask_mod.ask(provider, question, text, kpi_text, thread.history(), sent, None,
                                      ", ".join(thread.projects), read_before=read_before if partial else None,
                                      contents_text=contents_lines if partial else "",
-                                     earlier=rounds[-1]["_answer"] if rounds else None, check_note=check_note, round_no=round_no)
+                                     earlier=rounds[-1]["_answer"] if rounds else None, check_note=check_note,
+                                     round_no=round_no,
+                                     on_text=lambda text: session.set_live(ask_mod.live_answer(text)))
                 record: dict[str, Any] = {"n": round_no, "read": added, "answer": answer.answer, "gaps": answer.gaps,
                                           "sources": answer.sources, "_answer": answer}
                 if not vault or not partial or session.cancelled.is_set():
@@ -2666,4 +2682,5 @@ def serve(config: dict, config_path: Path | None, *, port: int = DEFAULT_PORT, o
         pass
     finally:
         httpd.server_close()
+        stop_shared()          # spec 4.1: the OpenCode server goes when the program does
     return 0

@@ -86,6 +86,48 @@ def ask_prompt(question: str, knowledge_text: str, kpi_text: str, history: list[
     return "\n".join(lines)
 
 
+_ANSWER_KEY = re.compile(r'"answer"\s*:\s*"')
+_ESCAPES = {"n": "\n", "t": "\t", "r": "", '"': '"', "\\": "\\", "/": "/", "b": "", "f": ""}
+
+
+def live_answer(partial: str) -> str:
+    """The answer as far as the model has written it (spec 4.1), read out of
+    the half-finished JSON the stream carries: the value of ``answer``,
+    unescaped, up to wherever the model has got to. Nothing before the key
+    is written, and a broken escape at the end is simply not shown yet.
+
+    This is for the page's eye only. The answer Python keeps is the one
+    parsed from the finished call by ``parse_answer``."""
+    match = _ANSWER_KEY.search(partial)
+    if match is None:
+        return ""
+    out: list[str] = []
+    index = match.end()
+    while index < len(partial):
+        char = partial[index]
+        if char == "\\":
+            if index + 1 >= len(partial):
+                break                                  # an escape the model has not finished writing
+            following = partial[index + 1]
+            if following == "u":
+                if index + 6 > len(partial):
+                    break
+                try:
+                    out.append(chr(int(partial[index + 2:index + 6], 16)))
+                except ValueError:
+                    pass
+                index += 6
+                continue
+            out.append(_ESCAPES.get(following, following))
+            index += 2
+            continue
+        if char == '"':
+            break                                      # the end of the answer; the rest is sources and gaps
+        out.append(char)
+        index += 1
+    return "".join(out)
+
+
 def _note_key(path: str) -> str:
     name = path.replace("\\", "/").strip().strip("[]").lower()
     return name[:-3] if name.endswith(".md") else name
@@ -157,11 +199,16 @@ def parse_answer(text: str, sent: dict[str, str], briefs: dict[str, str] | None 
 def ask(provider: AiProvider, question: str, knowledge_text: str, kpi_text: str, history: list[tuple[str, str]],
         sent: dict[str, str], briefs: dict[str, str] | None = None, project: str = "", *,
         read_before: list[str] | None = None, contents_text: str = "", earlier: Answer | None = None,
-        check_note: str = "", round_no: int = 1) -> Answer:
-    """One call, first round or later. Raises whatever the provider raises."""
+        check_note: str = "", round_no: int = 1, on_text=None) -> Answer:
+    """One call, first round or later. Raises whatever the provider raises.
+
+    ``on_text`` is handed the answer as the model writes it, when the
+    provider streams (spec 4.1); what it receives is for the page, and the
+    answer is the one parsed from the finished call."""
     ai_result = provider.complete(TASK_BOARD, ask_prompt(question, knowledge_text, kpi_text, history, project,
                                                          read_before=read_before, contents_text=contents_text,
-                                                         earlier=earlier, check_note=check_note, round_no=round_no))
+                                                         earlier=earlier, check_note=check_note, round_no=round_no),
+                                  on_text)
     answer = parse_answer(ai_result.text, sent, briefs)
     answer.ai_result = ai_result
     return answer

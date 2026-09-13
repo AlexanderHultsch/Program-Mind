@@ -102,9 +102,12 @@ class RoutingFakeProvider(AiProvider):
         self.check_answers: list[str] = []      # the checker's answers in order; content ("complete") when they run out
         self.delay = 0.0                        # seconds every call sleeps, for the "busy" tests
 
-    def complete(self, task: str, prompt: str) -> AiResult:
+    def complete(self, task: str, prompt: str, on_text=None) -> AiResult:
         with self.lock:
             self.prompts.append(prompt)
+        if on_text is not None and "## Question to the vault" in prompt:
+            later = "## Your answer so far" in prompt          # spec 4.1: the answer as it is written
+            on_text(((self.second_answer if later else None) or self.ask_answer or ASK)[:20])
         if self.delay:
             time.sleep(self.delay)
         if "## Answer to check" in prompt:
@@ -365,7 +368,7 @@ class TestServerFlow(unittest.TestCase):
     def test_the_round_limit_sends_the_question_to_the_board(self):
         keep = self.provider.complete
         # A clarifier that never finds the question clear.
-        self.provider.complete = lambda task, prompt: (
+        self.provider.complete = lambda task, prompt, on_text=None: (
             AiResult(text=CLARIFIER, provider="fake", model="m", input_tokens=1, output_tokens=1, duration_seconds=0)
             if "## Question from Alex" in prompt else keep(task, prompt))
         try:
@@ -517,7 +520,7 @@ class TestServerFlow(unittest.TestCase):
 
     def test_back_after_a_failed_run_returns_to_confirm_with_the_choice_kept(self):
         keep = self.provider.complete
-        self.provider.complete = lambda task, prompt: (_ for _ in ()).throw(RuntimeError("gateway down")) \
+        self.provider.complete = lambda task, prompt, on_text=None: (_ for _ in ()).throw(RuntimeError("gateway down")) \
             if "## Assessments" in prompt else keep(task, prompt)
         try:
             _, state = self.call("POST", "/api/sessions", {"question": "Anything?"})
@@ -547,7 +550,7 @@ class TestServerFlow(unittest.TestCase):
         import time as _time
         keep = self.provider.complete
 
-        def slow(task, prompt):
+        def slow(task, prompt, on_text=None):
             if "## Member (FR-3.3a)" in prompt:
                 _time.sleep(0.6)
             return keep(task, prompt)
@@ -883,6 +886,36 @@ class TestAskThreads(unittest.TestCase):
         self.assertNotIn("## Table of contents", prompt)                   # 5.6, decision 5: noise when everything is read
         self.assertNotIn("## Pages read earlier", prompt)
 
+    def test_the_page_is_given_the_answer_as_it_is_written(self):
+        """Spec 4.1: the live text is the answer so far, read out of the
+        half-written JSON, and it is gone when the turn stands."""
+        self.provider.delay = 0.8
+        try:
+            _, created = self.call("POST", "/api/ask", {})
+            tid = created["id"]
+            self.call("POST", f"/api/ask/{tid}/question", {"question": "Is the tooling late?"})
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                _, state = self.call("GET", f"/api/ask/{tid}")
+                if state["phase"] == "picks":
+                    break
+                time.sleep(0.05)
+            self.call("POST", f"/api/ask/{tid}/read", {})
+            live = ""
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                _, state = self.call("GET", f"/api/ask/{tid}")
+                live = state.get("live") or live
+                if not state["busy"]:
+                    break
+                time.sleep(0.05)
+            self.assertEqual(live, "- Toolin")                # ASK's answer, as far as it was written
+        finally:
+            self.provider.delay = 0.0
+        state = self._wait(tid)
+        self.assertEqual(state["live"], "")                   # gone once the turn stands
+        self.assertEqual(state["turns"][-1]["answer"], "- Tooling is late.")
+
     def test_a_busy_thread_refuses_a_second_question(self):
         self.provider.delay = 0.6
         try:
@@ -1068,7 +1101,7 @@ class TestShellStatus(unittest.TestCase):
 
     def test_a_failed_test_call_turns_the_icon_red(self):
         class Broken(AiProvider):
-            def complete(self, task, prompt):
+            def complete(self, task, prompt, on_text=None):
                 raise RuntimeError("gateway said no")
         self.board_server._provider_override = Broken()
         _, ai = self.call("POST", "/api/status/ai")

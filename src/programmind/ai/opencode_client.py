@@ -20,7 +20,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .provider import (
     AiNotConfiguredError,
@@ -48,15 +48,32 @@ EMPTY_RETRY_PREFIX = ("IMPORTANT: your previous attempt at this call produced re
                       "Write the answer now, in the shape the instruction asks for, and nothing else.\n\n")
 _NO_TEXT = "produced no answer text"
 
-# Running opencode processes by the thread that started them, so a session
-# can stop its own calls when Alex goes back (9 September 2026).
-_ACTIVE: dict[int, subprocess.Popen] = {}
+# What each thread is waiting on, so a session can stop its own calls when
+# Alex goes back (9 September 2026): an ``opencode run`` process, or the
+# object that aborts a server-mode session (spec 4.1). Anything with a
+# ``kill()`` will do.
+_ACTIVE: dict[int, Any] = {}
 _STOPPED: set[int] = set()
 _ACTIVE_LOCK = threading.Lock()
 # The optional flags each opencode binary accepts, probed once per process
 # (OC-7): eight member threads must not each spawn `opencode run --help`.
 _FLAGS: dict[str, frozenset[str]] = {}
 _FLAGS_LOCK = threading.Lock()
+
+
+def register_call(thread_id: int, stoppable: Any) -> None:
+    """What Stop should reach for while this thread waits (spec 4.1)."""
+    with _ACTIVE_LOCK:
+        _ACTIVE[thread_id] = stoppable
+
+
+def finish_call(thread_id: int) -> bool:
+    """The call is over; says whether ``stop_call`` was used on it."""
+    with _ACTIVE_LOCK:
+        _ACTIVE.pop(thread_id, None)
+        stopped = thread_id in _STOPPED
+        _STOPPED.discard(thread_id)
+    return stopped
 
 
 def stop_call(thread_id: int) -> bool:
@@ -233,8 +250,11 @@ class OpenCodeProvider(AiProvider):
         self._timeout_seconds = timeout_seconds
         self._supported: frozenset[str] | None = None
 
-    def complete(self, task: str, prompt: str) -> AiResult:
+    def complete(self, task: str, prompt: str, on_text: Callable[[str], None] | None = None) -> AiResult:
         """Runs ``task`` through ``opencode run`` and returns its ``AiResult``.
+
+        ``on_text`` is ignored here: a run hands its answer over in one
+        piece when it is done, which is why spec 4.1 has the server mode.
 
         AI-1's configured token limit (``provider.token_limits.<key>``) is
         observed here, never enforced: nothing is truncated and the run is

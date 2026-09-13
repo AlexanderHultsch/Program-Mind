@@ -156,6 +156,37 @@ overhead per call, measured once against OpenCode 1.18.11 in the source
 project and carried over as the basis for the ≈56,000-token figure quoted
 there for one board's initial round.
 
+### 4.1 The live answer, and OpenCode's server mode
+
+**Decided 13 September 2026.** A question that reads the whole vault takes
+the best part of a minute, and the page shows a turning circle for all of
+it. Alex: "it is not user friendly to watch the waiting cycle turn while
+it is generating the answer - can we make it similar to ChatGPT and Claude
+chat, where we see live what the AI is building?" Three ways in were
+probed on his machine with `python scripts/run.py probe-stream`, the same
+configuration, environment and model as every real call:
+
+| Way | What the probe found |
+|---|---|
+| `opencode run --format json` (what every call uses today) | One text event at 7.4 s of an 8.5 s run: the whole answer in one piece. Nothing to stream. |
+| `opencode run`, plain output | The banner `> build - <model>` at 2.6 s, then the whole answer in one piece at 5.7 s of a 6.7 s run. Nothing to stream either; an earlier reading of this probe called the banner an answer and was wrong. |
+| `opencode serve` and its event stream | 175 routes. `POST /api/session` opens a session, `POST /session/{id}/message` carries the prompt, and `GET /api/event` streamed 100 `message.part.delta` events and 7 `message.part.updated` between 5.4 s and 7.1 s of a 9.1 s call. This is the way. |
+
+| # | Decision |
+|---|---|
+| 1 | **The page shows the answer as it is written**, in the card where the finished answer will stand, with the steps above it. Ask the vault first; the board follows when it is proven. |
+| 2 | **The way is OpenCode's server mode**: one `opencode serve` process for as long as Program Mind runs, started when the first call needs it and stopped with the program; one OpenCode session per call, aborted on Stop and deleted when the call ends. OpenCode's own session memory is not used for anything: the thread's history travels in the prompt as it always has (5.4, decision 2, stands). |
+| 3 | **What is streamed is for the eye only.** The answer Python parses, checks and stores is the one the call returns at the end, exactly as it is today. A stream that gives nothing, or gives something odd, costs nothing but the live view; it can never change an answer, a source or a gap. |
+| 4 | **Only the assistant's own answer text is shown.** The prompt comes back as a part of the user's message and the model's reasoning as a part of its own; neither is the answer. Parts are matched to their message and their type, and anything that is not the assistant's `text` is ignored. |
+| 5 | **The server gets nothing to touch.** It is started in an empty folder of its own, never in the repository or the vault: the probe's session ran in the repository with tools live in it (OC-6). The prompts say the model has no tools and needs none; this makes that true of the working directory as well. |
+| 6 | **`opencode run` stays, and is the fallback.** `provider.opencode.mode`: `auto` (the default: use the server, fall back to the run for the rest of the session if it will not start), `serve`, or `run`. Everything the run contract guarantees holds for the server too: one retry when a call answers nothing (OC-11), an error that names what happened instead (OC-9), provider, model, tokens and duration on every result (AI-2). The status page says which way is in use. |
+| 7 | **The page asks more often while a call runs** (twice a second instead of once) and not at all when nothing runs. The live text is held in memory only: it is never written to the thread file, and what is stored at the end is the answer, as before. |
+
+**Built 13 September 2026** in `ai/opencode_server.py` (the shared process,
+the session per call, the event stream), `ai/provider.py` (`complete` takes
+an optional `on_text`), the shell server (the live text on the session and
+in its snapshot) and the thread page.
+
 ## 5. Knowledge source and memory
 
 **Decided 8 September 2026, built in `knowledge.py` and `memory_writer.py`.**

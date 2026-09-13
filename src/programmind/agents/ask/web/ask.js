@@ -23,7 +23,7 @@
       if (!thread || PM.route() !== "thread") return stopThreadPolling();
       try { thread = await api("GET", `/api/ask/${thread.id}`); renderThread(); }
       catch (err) { stopThreadPolling(); setError("thread-error", err.message); }
-    }, 1000);
+    }, 500);       // spec 4.1, decision 7: often enough for the answer to grow on the page
   }
   // A small Markdown: paragraphs, bullet and numbered lists, bold, code. Escaped first.
 
@@ -145,7 +145,12 @@
         ? "Reading the table of contents and choosing what to read…"
         : "Reading the chosen pages and answering…";
       renderSteps();
-    }
+      // Spec 4.1: what the model has written so far, in the card the answer will stand in.
+      const live = thread.live || "";
+      $("thread-live").hidden = !live;
+      $("thread-pending").classList.toggle("writing", !!live);
+      if (live) $("thread-live-text").innerHTML = md(live);
+    } else { $("thread-live").hidden = true; $("thread-pending").classList.remove("writing"); }
     $("thread-form").hidden = closed || thread.busy;
     renderPicksMode();
     $("thread-closed").hidden = !closed || thread.busy;

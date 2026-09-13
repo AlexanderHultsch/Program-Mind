@@ -49,7 +49,7 @@
   },
 
   "provider": {
-    "_comment": "models.board is the provider/model string OpenCode expects, e.g. 'anthropic/claude-opus-5' for a private account, or whatever provider/model your company's opencode.json defines. endpoint is only a record of which endpoint was approved (AI-3); it is not read per call. token_limits.board null means no limit is observed. opencode.config_file points at a company-provided opencode.json (the file from IT that defines the provider and the gateway) and is passed as OPENCODE_CONFIG (OC-8); never this file - OpenCode rejects it with 'unrecognized keys'. Leave empty for a private setup. opencode.auto_approve adds --auto where the installed version has it (OC-6, OC-7). opencode.extra_args appends further arguments to every run, one string per argument, e.g. --agent plan (OC-9).",
+    "_comment": "models.board is the provider/model string OpenCode expects, e.g. 'anthropic/claude-opus-5' for a private account, or whatever provider/model your company's opencode.json defines. endpoint is only a record of which endpoint was approved (AI-3); it is not read per call. token_limits.board null means no limit is observed. opencode.config_file points at a company-provided opencode.json (the file from IT that defines the provider and the gateway) and is passed as OPENCODE_CONFIG (OC-8); never this file - OpenCode rejects it with 'unrecognized keys'. Leave empty for a private setup. opencode.auto_approve adds --auto where the installed version has it (OC-6, OC-7). opencode.extra_args appends further arguments to every run, one string per argument, e.g. --agent plan (OC-9). opencode.mode (spec 4.1) picks how OpenCode is called: auto (the default - one 'opencode serve' beside the program, so the page can show the answer as the model writes it, falling back to a run per call when the server will not start), serve, or run. Only the server streams; everything else about a call is the same either way.",
     "endpoint": "",
     "models": {
       "board": ""
@@ -60,7 +60,8 @@
     "opencode": {
       "auto_approve": true,
       "extra_args": [],
-      "config_file": ""
+      "config_file": "",
+      "mode": "auto"
     }
   }
 }

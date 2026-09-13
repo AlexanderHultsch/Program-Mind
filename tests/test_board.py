@@ -53,7 +53,7 @@ class FakeProvider(AiProvider):
         self.texts = list(texts)
         self.calls: list[tuple[str, str]] = []
 
-    def complete(self, task: str, prompt: str) -> AiResult:
+    def complete(self, task: str, prompt: str, on_text=None) -> AiResult:
         self.calls.append((task, prompt))
         text = self.texts.pop(0) if self.texts else "{}"
         return AiResult(
@@ -83,7 +83,7 @@ class TimedFakeProvider(AiProvider):
                 return line[len("Member: "):]
         return ""
 
-    def complete(self, task: str, prompt: str) -> AiResult:
+    def complete(self, task: str, prompt: str, on_text=None) -> AiResult:
         member = self._member_from_prompt(prompt)
         start = time.monotonic()
         time.sleep(self.sleep_by_member.get(member, 0))
@@ -105,7 +105,7 @@ class RaisingMemberProvider(AiProvider):
     def __init__(self, raise_for: str):
         self.raise_for = raise_for
 
-    def complete(self, task: str, prompt: str) -> AiResult:
+    def complete(self, task: str, prompt: str, on_text=None) -> AiResult:
         if f"Member: {self.raise_for}" in prompt:
             raise RuntimeError("provider unavailable")
         text = SYNTHESIS_RESPONSE if "## Assessments" in prompt else _member_response()
@@ -440,7 +440,7 @@ class TestMemberChoiceApplicabilityAndRetry(unittest.TestCase):
                 super().__init__([])
                 self.failed_once = False
 
-            def complete(self, task, prompt):
+            def complete(self, task, prompt, on_text=None):
                 self.calls.append((task, prompt))
                 if "## Member (FR-3.3a)" in prompt and not self.failed_once:
                     self.failed_once = True
@@ -458,7 +458,7 @@ class TestMemberChoiceApplicabilityAndRetry(unittest.TestCase):
 
     def test_other_failures_are_not_retried(self):
         class Broken(FakeProvider):
-            def complete(self, task, prompt):
+            def complete(self, task, prompt, on_text=None):
                 self.calls.append((task, prompt))
                 if "## Member (FR-3.3a)" in prompt:
                     raise RuntimeError("connection refused")
@@ -520,7 +520,7 @@ class TestFollowUpWithMembers(unittest.TestCase):
 
     def test_a_member_that_fails_on_the_follow_up_is_named_and_the_rest_answer(self):
         class OneBroken(FakeProvider):
-            def complete(self, task, prompt):
+            def complete(self, task, prompt, on_text=None):
                 self.calls.append((task, prompt))
                 if f"Member: {MEMBERS[0]}" in prompt:
                     raise RuntimeError("boom")

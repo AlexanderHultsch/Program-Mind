@@ -243,7 +243,7 @@ class TestRolesInPrompts(unittest.TestCase):
     def test_run_board_takes_its_members_from_the_roles_folder(self):
         class Recorder(AiProvider):
             def __init__(self): self.prompts = []
-            def complete(self, task, prompt):
+            def complete(self, task, prompt, on_text=None):
                 self.prompts.append(prompt)
                 text = json.dumps({"overall_recommendation": "x", "decisive_criterion": "y",
                                    "counter_arguments": [], "what_would_change_it": "", "disagreements": []}) \

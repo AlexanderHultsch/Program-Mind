@@ -150,6 +150,8 @@
       <p id="thread-pending-text" class="muted">Reading the vault and answering…</p>
       <button type="button" class="ghost small-btn" id="btn-thread-stop">Stop</button>
     </div>
+    <!-- The answer as the model writes it (spec 4.1). Replaced by the turn itself when the call ends. -->
+    <div id="thread-live" class="live-answer" hidden><div class="a" id="thread-live-text"></div></div>
     <form id="thread-form" class="ask compact">
       <textarea id="thread-question" rows="3" placeholder="Ask back, or ask the next question…"></textarea>
       <!-- The picks screen (spec 5.3): the model chose from the table of contents; Alex reads or changes it. -->

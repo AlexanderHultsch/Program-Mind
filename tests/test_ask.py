@@ -27,7 +27,7 @@ class FixedProvider(AiProvider):
         self.text = text
         self.prompts: list[str] = []
 
-    def complete(self, task: str, prompt: str) -> AiResult:
+    def complete(self, task: str, prompt: str, on_text=None) -> AiResult:
         self.prompts.append(prompt)
         return AiResult(text=self.text, provider="fake", model="m", input_tokens=1, output_tokens=1, duration_seconds=0)
 
@@ -49,6 +49,27 @@ class TestPrompt(unittest.TestCase):
         self.assertIn("Q: q5", text)
         self.assertNotIn("Q: q0", text)
         self.assertLess(text.index("Q: q4"), text.index("Q: q5"))
+
+
+class TestLiveAnswer(unittest.TestCase):
+    """Spec 4.1: the page shows the answer as it is written, read out of the
+    half-finished JSON the stream carries."""
+
+    def test_the_answer_so_far_is_read_out_of_half_written_json(self):
+        self.assertEqual(ask.live_answer('{"answer": "MG4 closes'), "MG4 closes")
+        self.assertEqual(ask.live_answer('{"answer": "a\\nb \\"q\\" '), 'a\nb "q" ')
+        self.assertEqual(ask.live_answer('{"answer": "done", "sources": []}'), "done")
+        self.assertEqual(ask.live_answer('{"answer": "MG\\u00964"'), "MG\u00964")
+
+    def test_nothing_is_shown_before_the_answer_starts_or_mid_escape(self):
+        self.assertEqual(ask.live_answer(""), "")
+        self.assertEqual(ask.live_answer('{"sour'), "")
+        self.assertEqual(ask.live_answer('{"gaps": ["none"], "answer'), "")
+        self.assertEqual(ask.live_answer('{"answer": "tail\\'), "tail")        # the escape is not finished yet
+        self.assertEqual(ask.live_answer('{"answer": "tail\\u00'), "tail")
+
+    def test_a_fenced_answer_and_an_odd_key_still_read(self):
+        self.assertEqual(ask.live_answer('```json\n{"answer" : "Fenced"'), "Fenced")
 
 
 class TestLoopPrompt(unittest.TestCase):

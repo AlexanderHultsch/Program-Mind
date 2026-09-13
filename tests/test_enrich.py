@@ -79,7 +79,7 @@ class SummaryProvider(AiProvider):
         self.prompts: list[str] = []
         self.answer = answer
 
-    def complete(self, task: str, prompt: str) -> AiResult:
+    def complete(self, task: str, prompt: str, on_text=None) -> AiResult:
         self.prompts.append(prompt)
         if self.answer is not None:
             text = self.answer

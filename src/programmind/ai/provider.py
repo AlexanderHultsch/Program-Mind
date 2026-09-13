@@ -20,7 +20,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Callable, Any
 
 TASK_BOARD = "ai_board"  # AI Board
 
@@ -95,7 +95,11 @@ class AiProvider(ABC):
     """
 
     @abstractmethod
-    def complete(self, task: str, prompt: str) -> AiResult:
+    def complete(self, task: str, prompt: str, on_text: Callable[[str], None] | None = None) -> AiResult:
+        """``on_text`` is called with the answer as far as the model has
+        written it, whenever that changes (spec 4.1, 13 September 2026).
+        Only a provider that streams calls it; what it passes is for the
+        page's eye alone, and the answer is the ``AiResult``."""
         raise NotImplementedError
 
 
@@ -104,6 +108,11 @@ def build_provider(config: dict, *, cwd: Path | str | None = None) -> AiProvider
 
     as "AI not available" and report it rather than failing (NFR-8) - this
     keeps that contract rather than raising.
+
+    ``provider.opencode.mode`` (spec 4.1, decision 6) picks the way in:
+    ``auto`` (the default: the server, falling back to the run when it will
+    not start), ``serve``, or ``run``. Only the server streams the answer as
+    it is written.
     """
     if not any(resolve_model(config, task) is not None for task in TASK_MODEL_KEYS):
         return None
@@ -112,4 +121,15 @@ def build_provider(config: dict, *, cwd: Path | str | None = None) -> AiProvider
     # model itself (see the module docstring) - only the OpenCode client does.
     from .opencode_client import OpenCodeProvider
 
-    return OpenCodeProvider(config, cwd=cwd)
+    run = OpenCodeProvider(config, cwd=cwd)
+    mode = str(_get(config, "provider.opencode.mode") or "auto").strip().lower()
+    if mode == "run":
+        return run
+    from .opencode_server import OpenCodeServerProvider
+
+    return OpenCodeServerProvider(config, fallback=None if mode == "serve" else run)
+
+
+def streams(config: dict) -> bool:
+    """Whether answers can be shown as they are written (spec 4.1)."""
+    return str(_get(config, "provider.opencode.mode") or "auto").strip().lower() != "run"

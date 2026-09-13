@@ -294,7 +294,8 @@
   function aiCard(a) {
     const rows = [`<dt>Model</dt><dd>${esc(a.model || "not set")}</dd>`,
       `<dt>OpenCode</dt><dd>${esc(a.opencode || "not found on PATH")}</dd>`,
-      `<dt>Gateway file</dt><dd>${esc(a.config_file || (a.profile === "private" ? "none (private setup)" : "not set"))}</dd>`];
+      `<dt>Gateway file</dt><dd>${esc(a.config_file || (a.profile === "private" ? "none (private setup)" : "not set"))}</dd>`,
+      `<dt>Answers</dt><dd>${a.streams ? "shown as the model writes them (OpenCode's server mode)" : "shown when the call is done (one run per call)"}</dd>`];
     const c = a.last_call;
     if (c) rows.push(`<dt>Test call</dt><dd>${c.ok ? `answered "${esc(c.answer)}" in ${esc(fmtSec(c.seconds))}` : `failed: ${esc(c.error)}`} · ${esc(fmtDate(c.at))}</dd>`);
     else rows.push(`<dt>Test call</dt><dd>none yet · click the icon to run one</dd>`);

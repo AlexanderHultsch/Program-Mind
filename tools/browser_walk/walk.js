@@ -272,6 +272,14 @@ const { chromium } = require('playwright');
   // The steps (spec 5.4, decision 9) on the whole-vault path (spec 5.6): reading, writing, no check.
   await page.waitForFunction(() => /Reading \d+ notes/.test(document.querySelector('#thread-steps').textContent), null, { timeout: 15000 });
   console.log('steps while answering:', (await page.locator('#thread-steps .step').allTextContents()).join(' > '));
+  // The answer as the model writes it (spec 4.1).
+  await page.waitForSelector('#thread-live:not([hidden])', { timeout: 15000 });
+  const early = (await page.textContent('#thread-live-text')).trim();
+  await page.waitForFunction((was) => {
+    const now = document.querySelector('#thread-live-text').textContent.trim();
+    return now.length > was.length;
+  }, early, { timeout: 15000 });
+  console.log('live answer grew:', JSON.stringify(early.slice(0, 40)), '->', JSON.stringify((await page.textContent('#thread-live-text')).trim().slice(0, 60)));
   await shot('20c-answering');
   await page.waitForSelector('.turn.answer', { timeout: 20000 });
   await page.click('.turn.answer .sources-fold > summary');
